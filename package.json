@@ -1,0 +1,24 @@
+{
+  "name": "vocera",
+  "version": "1.0.0",
+  "description": "Vocera monorepo with frontend app and voice detection service",
+  "private": true,
+  "scripts": {
+    "frontend:dev": "cd vocera-frontend && npm start",
+    "frontend:android": "cd vocera-frontend && npm run android",
+    "frontend:ios": "cd vocera-frontend && npm run ios",
+    "frontend:web": "cd vocera-frontend && npm run web",
+    "voice:dev": "cd voice-detect && npm run dev",
+    "voice:start": "cd voice-detect && npm start",
+    "install:all": "cd vocera-frontend && npm install && cd ../voice-detect && npm install"
+  },
+  "keywords": [
+    "vocera",
+    "voice-detection",
+    "react-native",
+    "expo",
+    "monorepo"
+  ],
+  "author": "",
+  "license": "MIT"
+}
