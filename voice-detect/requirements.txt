@@ -1,11 +1,9 @@
 Flask
-supabase
 numpy
 scipy
 librosa
 torch
 transformers
 opensmile
-python-dotenv
 Werkzeug
 gunicorn 

@@ -1,26 +1,17 @@
 import os
-import json
 from flask import Flask, request, jsonify
-from supabase import create_client, Client
-from dotenv import load_dotenv
 import numpy as np
 from scipy.spatial.distance import euclidean, cosine
 from itertools import combinations
 import tempfile
 
 from feature_extractor import extract_opensmile_features, extract_wav2vec_features
-
-load_dotenv()
+from database import MemoryDatabase
 
 app = Flask(__name__)
 
-# Supabase configuration
-# Create a .env file in this directory and add your Supabase URL and Key
-# SUPABASE_URL="YOUR_SUPABASE_URL"
-# SUPABASE_KEY="YOUR_SUPABASE_KEY"
-url: str = os.environ.get("SUPABASE_URL")
-key: str = os.environ.get("SUPABASE_KEY")
-supabase: Client = create_client(url, key)
+# In-memory database
+db = MemoryDatabase()
 
 # Tunable parameter for openSMILE scoring
 OPEN_SMILE_THRESHOLD_MULTIPLIER = 2.0
@@ -61,18 +52,14 @@ def calibrate():
         cos_sims = [1 - cosine(pair[0], pair[1]) for pair in combinations(wav2vec_vectors, 2)]
         avg_cosine_similarity = np.mean(cos_sims)
 
-        # Store in Supabase
-        # Convert numpy arrays to lists for JSON serialization
-        opensmile_vectors_list = [v.tolist() for v in opensmile_vectors]
-        wav2vec_vectors_list = [v.tolist() for v in wav2vec_vectors]
-
-        data, count = supabase.table('profiles').upsert({
+        # Store in the in-memory database
+        db.upsert_profile({
             'user_id': user_id,
-            'opensmile_vectors': json.dumps(opensmile_vectors_list),
-            'wav2vec_vectors': json.dumps(wav2vec_vectors_list),
+            'opensmile_vectors': opensmile_vectors,
+            'wav2vec_vectors': wav2vec_vectors,
             'avg_euclidean_distance': avg_euclidean_distance,
             'avg_cosine_similarity': avg_cosine_similarity
-        }).execute()
+        })
 
     except Exception as e:
         # Clean up temp files in case of error
@@ -109,14 +96,13 @@ def verify():
             files[0].save(temp_file)
             temp_file_path = temp_file.name
 
-        # Fetch user profile from Supabase
-        response = supabase.table('profiles').select("*").eq('user_id', user_id).execute()
-        if not response.data:
+        # Fetch user profile from the in-memory database
+        profile = db.get_profile(user_id)
+        if not profile:
             return jsonify({"error": "User profile not found"}), 404
         
-        profile = response.data[0]
-        baseline_os_vectors = json.loads(profile['opensmile_vectors'])
-        baseline_wv_vectors = json.loads(profile['wav2vec_vectors'])
+        baseline_os_vectors = profile['opensmile_vectors']
+        baseline_wv_vectors = profile['wav2vec_vectors']
         baseline_avg_euclidean_dist = profile['avg_euclidean_distance']
         baseline_avg_cosine_sim = profile['avg_cosine_similarity']
 
@@ -174,6 +160,25 @@ def verify():
     finally:
         if temp_file_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
+
+
+@app.route('/get_profile/<user_id>', methods=['GET'])
+def get_profile(user_id):
+    """Retrieves a user's profile from the in-memory database for debugging."""
+    profile = db.get_profile(user_id)
+    if not profile:
+        return jsonify({"error": "User profile not found"}), 404
+
+    # Create a serializable copy of the profile data
+    profile_copy = {
+        'user_id': profile['user_id'],
+        'opensmile_vectors': [v.tolist() for v in profile['opensmile_vectors']],
+        'wav2vec_vectors': [v.tolist() for v in profile['wav2vec_vectors']],
+        'avg_euclidean_distance': profile['avg_euclidean_distance'],
+        'avg_cosine_similarity': profile['avg_cosine_similarity']
+    }
+
+    return jsonify(profile_copy)
 
 
 if __name__ == '__main__':

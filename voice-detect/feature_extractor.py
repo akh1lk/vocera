@@ -5,7 +5,7 @@ from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor
 
 # Initialize openSMILE
 smile = opensmile.Smile(
-    feature_set=opensmile.FeatureSet.IS09_emotion,
+    feature_set=opensmile.FeatureSet.eGeMAPSv02,
     feature_level=opensmile.FeatureLevel.Functionals,
 )
 
