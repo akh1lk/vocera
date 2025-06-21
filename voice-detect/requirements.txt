@@ -1,9 +1,6 @@
 Flask
 numpy
 scipy
-librosa
-torch
-transformers
 opensmile
 Werkzeug
 gunicorn 

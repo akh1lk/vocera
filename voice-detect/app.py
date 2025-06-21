@@ -1,11 +1,11 @@
 import os
 from flask import Flask, request, jsonify
 import numpy as np
-from scipy.spatial.distance import euclidean, cosine
+from scipy.spatial.distance import euclidean
 from itertools import combinations
 import tempfile
 
-from feature_extractor import extract_opensmile_features, extract_wav2vec_features
+from feature_extractor import extract_opensmile_features
 from database import MemoryDatabase
 
 app = Flask(__name__)
@@ -15,7 +15,6 @@ db = MemoryDatabase()
 
 # Tunable parameters for scoring thresholds
 OPEN_SMILE_THRESHOLD_MULTIPLIER = 2.0
-WAV2VEC_THRESHOLD_MULTIPLIER = 1.2
 
 
 @app.route('/calibrate', methods=['POST'])
@@ -43,23 +42,16 @@ def calibrate():
         
         # Extract features
         opensmile_vectors = [extract_opensmile_features(f) for f in temp_files]
-        wav2vec_vectors = [extract_wav2vec_features(f) for f in temp_files]
 
         # Calculate average Euclidean distance for openSMILE
         os_distances = [euclidean(pair[0], pair[1]) for pair in combinations(opensmile_vectors, 2)]
         avg_euclidean_distance = np.mean(os_distances)
 
-        # Calculate average cosine distance for Wav2Vec
-        cos_distances = [cosine(pair[0], pair[1]) for pair in combinations(wav2vec_vectors, 2)]
-        avg_cosine_distance = np.mean(cos_distances)
-
         # Store in the in-memory database
         db.upsert_profile({
             'user_id': user_id,
             'opensmile_vectors': opensmile_vectors,
-            'wav2vec_vectors': wav2vec_vectors,
-            'avg_euclidean_distance': avg_euclidean_distance,
-            'avg_cosine_distance': avg_cosine_distance
+            'avg_euclidean_distance': avg_euclidean_distance
         })
 
     except Exception as e:
@@ -103,18 +95,10 @@ def verify():
             return jsonify({"error": "User profile not found"}), 404
         
         baseline_os_vectors = profile['opensmile_vectors']
-        baseline_wv_vectors = profile['wav2vec_vectors']
         baseline_avg_euclidean_dist = profile['avg_euclidean_distance']
-        baseline_avg_cosine_dist = profile['avg_cosine_distance']
 
         # Extract features from verification file
         verify_os_vector = extract_opensmile_features(temp_file_path)
-        verify_wv_vector = extract_wav2vec_features(temp_file_path)
-
-        # --- Wav2Vec Verification ---
-        # Calculate the cosine distance between the verification vector and each baseline vector.
-        wv_distances = [cosine(verify_wv_vector, v) for v in baseline_wv_vectors]
-        avg_wv_distance = np.mean(wv_distances)
 
         # --- openSMILE Verification ---
         # Calculate the Euclidean distance between the verification vector and each baseline vector.
@@ -123,15 +107,10 @@ def verify():
         avg_os_distance = np.mean(os_distances)
 
         # --- Scoring Logic ---
-        # Convert raw distance values into intuitive scores for each model. A score of 100
+        # Convert raw distance values into an intuitive score. A score of 100
         # is a perfect match. A score becomes negative if the verification distance is
         # significantly larger than the user's typical baseline distance, correctly
         # penalizing a likely mismatch.
-
-        # Wav2Vec Scoring:
-        # The threshold is personalized based on the user's baseline internal voice distance.
-        wav2vec_threshold = WAV2VEC_THRESHOLD_MULTIPLIER * baseline_avg_cosine_dist
-        wav2vec_score = 100 * (1 - (avg_wv_distance / wav2vec_threshold))
 
         # openSMILE Scoring:
         # The threshold uses a tunable multiplier on the user's baseline distance.
@@ -139,18 +118,15 @@ def verify():
         opensmile_score = 100 * (1 - (avg_os_distance / opensmile_threshold))
 
         # --- Final Prediction ---
-        # The final confidence is a simple average of the two model scores.
-        final_confidence = (wav2vec_score + opensmile_score) / 2
-        # The prediction is based on whether the combined confidence is above 50.
-        prediction = "authentic" if final_confidence >= 50 else "deepfake"
+        # The final confidence is now just the opensmile_score.
+        # The prediction is based on whether the confidence is above 50.
+        prediction = "authentic" if opensmile_score >= 50 else "deepfake"
 
         return jsonify({
             "prediction": prediction,
-            "confidence": final_confidence,
+            "confidence": opensmile_score,
             "details": {
-                "wav2vec_score": wav2vec_score,
                 "opensmile_score": opensmile_score,
-                "avg_verification_cosine_distance": avg_wv_distance,
                 "avg_verification_euclidean_distance": avg_os_distance
             }
         })
@@ -173,9 +149,7 @@ def get_profile(user_id):
     profile_copy = {
         'user_id': profile['user_id'],
         'opensmile_vectors': [v.tolist() for v in profile['opensmile_vectors']],
-        'wav2vec_vectors': [v.tolist() for v in profile['wav2vec_vectors']],
-        'avg_euclidean_distance': profile['avg_euclidean_distance'],
-        'avg_cosine_distance': profile['avg_cosine_distance']
+        'avg_euclidean_distance': profile['avg_euclidean_distance']
     }
 
     return jsonify(profile_copy)
