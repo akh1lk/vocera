@@ -66,4 +66,11 @@ venv.bak/
 .idea/
 
 # Supabase
-.supabase/ 
+.supabase/
+
+# Environment variables
+.env
+
+# Python cache
+__pycache__/
+*.pyc 

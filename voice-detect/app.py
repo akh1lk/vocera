@@ -7,6 +7,11 @@ import tempfile
 
 from feature_extractor import extract_opensmile_features
 from database import FileDatabase
+from textualcheck import (
+    transcribe_audio,
+    compare_transcriptions,
+    EXPECTED_TRANSCRIPTION,
+)
 
 app = Flask(__name__)
 
@@ -92,8 +97,34 @@ def verify():
     if len(files) != 1:
         return jsonify({"error": "1 audio file is required for verification"}), 400
 
+    # --- Textual Verification ---
+    # This will print the result to the console and then continue.
+    # It will not stop the voice verification if it fails.
+    try:
+        # Rewind the stream to ensure we're at the beginning.
+        files[0].stream.seek(0)
+        transcribed_text = transcribe_audio(files[0].stream, files[0].filename)
+        print(f"Transcribed text: {transcribed_text}")
+        is_match = compare_transcriptions(transcribed_text, EXPECTED_TRANSCRIPTION)
+        if not is_match:
+            return jsonify(
+            {
+                "prediction": "deepfake",
+                "confidence": -1,
+                "details": {},
+            }
+        )
+
+
+    except Exception as e:
+        print(f"\n⚠️  WARNING: Could not perform textual check. Reason: {e}\n")
+
+    # --- Voice Verification (Existing Logic) ---
     temp_file_path = None
     try:
+        # IMPORTANT: Rewind the stream again so it can be saved to a file for openSMILE.
+        files[0].stream.seek(0)
+
         # Save file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
             files[0].save(temp_file)
