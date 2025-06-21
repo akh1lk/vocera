@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   Image,
 } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { 
   FadeInUp, 
   FadeIn, 
@@ -228,11 +229,16 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView 
-        style={styles.scrollView} 
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+      <LinearGradient
+        colors={['transparent', 'rgba(37, 139, 182, 0.08)', 'rgba(37, 139, 182, 0.18)', 'rgba(37, 139, 182, 0.3)']}
+        locations={[0, 0.3, 0.7, 1]}
+        style={styles.gradientContainer}
       >
+        <ScrollView 
+          style={styles.scrollView} 
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
         {/* Header */}
         <Animated.View entering={FadeInUp.delay(100)} style={styles.header}>
           <Text style={styles.title}>Vocera</Text>
@@ -245,7 +251,7 @@ export default function HomeScreen() {
             <Animated.View entering={FadeInUp.delay(300)} style={styles.buttonContainer}>
               <TouchableOpacity style={styles.beginButton} onPress={handleStartVerification}>
                 <Mic size={20} color="#258bb6" />
-                <Text style={styles.beginButtonText}>Tap to begin Voice Verification</Text>
+                <Text style={styles.beginButtonText}>Tap to begin voice verification</Text>
               </TouchableOpacity>
             </Animated.View>
 
@@ -384,6 +390,7 @@ export default function HomeScreen() {
           </Animated.View>
         )}
       </ScrollView>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -392,6 +399,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f9f6f0',
+  },
+  gradientContainer: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,
@@ -487,6 +497,7 @@ const styles = StyleSheet.create({
   buttonContainer: {
     paddingHorizontal: 20,
     marginVertical: 20,
+    marginBottom: 10, // Reduced bottom margin to bring closer to logo
   },
   beginButton: {
     flexDirection: 'row',
@@ -524,33 +535,33 @@ const styles = StyleSheet.create({
     width: 260,
     height: 260,
     borderRadius: 130,
-    backgroundColor: 'rgba(220, 217, 212, 0.9)', // Closer to background color
+    backgroundColor: 'rgba(255, 255, 255, 0.4)', // More white, subtle
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 6,
     },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.05,
     shadowRadius: 12,
     elevation: 6,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.6)',
   },
   middleCircle: {
     width: 200,
     height: 200,
     borderRadius: 100,
-    backgroundColor: 'rgba(150, 150, 150, 0.7)', // Darker than outer
+    backgroundColor: 'rgba(255, 255, 255, 0.7)', // Much more white
     shadowColor: '#000',
     shadowOffset: {
       width: 0,
       height: 8,
     },
-    shadowOpacity: 0.12,
+    shadowOpacity: 0.08,
     shadowRadius: 16,
     elevation: 8,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
+    borderColor: 'rgba(255, 255, 255, 0.8)',
   },
   innerCircle: {
     width: 140,
