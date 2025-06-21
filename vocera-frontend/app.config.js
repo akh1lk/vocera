@@ -50,6 +50,24 @@ export default {
     ],
     experiments: {
       typedRoutes: true
-    }
+    },
+    assetBundlePatterns: [
+      "**/*"
+    ],
+    fonts: [
+      "./assets/fonts/GeorgiaPro-Black.ttf",
+      "./assets/fonts/GeorgiaPro-Bold.ttf",
+      "./assets/fonts/GeorgiaPro-BoldItalic.ttf",
+      "./assets/fonts/GeorgiaPro-CondBlack.ttf",
+      "./assets/fonts/Inter_18pt-Black.ttf",
+      "./assets/fonts/Inter_18pt-Bold.ttf",
+      "./assets/fonts/Inter_18pt-BoldItalic.ttf",
+      "./assets/fonts/Inter_18pt-Italic.ttf",
+      "./assets/fonts/Inter_28pt-BoldItalic.ttf",
+      "./assets/fonts/Inter_28pt-Medium.ttf",
+      "./assets/fonts/Inter_28pt-SemiBold.ttf",
+      "./assets/fonts/Inter_28pt-SemiBoldItalic.ttf",
+      "./assets/fonts/SpaceMono-Regular.ttf"
+    ]
   }
 };

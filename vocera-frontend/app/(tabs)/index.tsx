@@ -6,8 +6,22 @@ import {
   ScrollView,
   Alert,
   SafeAreaView,
+  TouchableOpacity,
+  Image,
 } from 'react-native';
-import Animated, { FadeInUp, FadeIn, SlideInRight, SlideInLeft, ZoomIn } from 'react-native-reanimated';
+import Animated, { 
+  FadeInUp, 
+  FadeIn, 
+  SlideInRight, 
+  SlideInLeft, 
+  ZoomIn, 
+  useSharedValue, 
+  useAnimatedStyle, 
+  withSpring,
+  withTiming,
+  withSequence,
+} from 'react-native-reanimated';
+import { Mic, Lock } from 'lucide-react-native';
 import { VoxButton } from '../../components/VoxButton';
 import { NameInput } from '../../components/NameInput';
 import { InstructionsPanel } from '../../components/InstructionsPanel';
@@ -29,12 +43,77 @@ export default function HomeScreen() {
     transcript: string;
   } | null>(null);
 
+  // Ripple animation values
+  const rippleScale = useSharedValue(1);
+  const rippleOpacity = useSharedValue(1);
+  const outerRippleScale = useSharedValue(1);
+  const middleRippleScale = useSharedValue(1);
+  const innerRippleScale = useSharedValue(1);
+  const outerRippleOpacity = useSharedValue(1);
+  const middleRippleOpacity = useSharedValue(1);
+  const innerRippleOpacity = useSharedValue(1);
+
   const { 
     user, 
     currentTranscript, 
     setCurrentTranscript,
     addSavedCall 
   } = useVoceraStore();
+
+  const handleLogoPress = () => {
+    // Create wave effect - each circle starts at a different time like ripples in a pond
+    // Inner black circle stays at full opacity, only outer circles animate
+    
+    // Inner circle only scales (no opacity change)
+    innerRippleScale.value = withSequence(
+      withTiming(1.1, { duration: 300 }),
+      withTiming(1, { duration: 400 })
+    );
+    
+    // Middle circle starts slightly after - becomes more visible
+    setTimeout(() => {
+      middleRippleScale.value = withSequence(
+        withTiming(1.2, { duration: 400 }),
+        withTiming(1, { duration: 500 })
+      );
+      middleRippleOpacity.value = withSequence(
+        withTiming(0.9, { duration: 400 }),
+        withTiming(0.7, { duration: 500 })
+      );
+    }, 100);
+    
+    // Outer circle starts last - becomes more visible
+    setTimeout(() => {
+      outerRippleScale.value = withSequence(
+        withTiming(1.15, { duration: 500 }),
+        withTiming(1, { duration: 600 })
+      );
+      outerRippleOpacity.value = withSequence(
+        withTiming(1.0, { duration: 500 }),
+        withTiming(0.9, { duration: 600 })
+      );
+    }, 200);
+  };
+
+  const animatedLogoStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: rippleScale.value }],
+    opacity: rippleOpacity.value,
+  }));
+
+  const animatedOuterStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: outerRippleScale.value }],
+    opacity: outerRippleOpacity.value,
+  }));
+
+  const animatedMiddleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: middleRippleScale.value }],
+    opacity: middleRippleOpacity.value,
+  }));
+
+  const animatedInnerStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: innerRippleScale.value }],
+    // Removed opacity - inner circle stays 100% opaque
+  }));
 
   const handleStartVerification = () => {
     if (!user?.hasVoxKey) {
@@ -154,24 +233,52 @@ export default function HomeScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {/* Header */}
         <Animated.View entering={FadeInUp.delay(100)} style={styles.header}>
           <Text style={styles.title}>Vocera</Text>
-          <Text style={styles.subtitle}>Voice Verification</Text>
+          <Text style={styles.subtitle}>Authenticate with a voice</Text>
         </Animated.View>
 
-        <InstructionsPanel
-          callerFirstName={callerName ? getFirstName(callerName) : undefined}
-          step={getInstructionStep()}
-        />
-
         {currentStep === 'initial' && (
-          <Animated.View entering={ZoomIn.delay(200)} style={styles.mainButton}>
-            <VoxButton
-              title="Tap to Verify"
-              onPress={handleStartVerification}
-              size="xl"
-            />
-          </Animated.View>
+          <>
+            {/* Blue Button */}
+            <Animated.View entering={FadeInUp.delay(300)} style={styles.buttonContainer}>
+              <TouchableOpacity style={styles.beginButton} onPress={handleStartVerification}>
+                <Mic size={20} color="#258bb6" />
+                <Text style={styles.beginButtonText}>Tap to begin Voice Verification</Text>
+              </TouchableOpacity>
+            </Animated.View>
+
+            {/* Circular Logo Design */}
+            <Animated.View entering={ZoomIn.delay(500)} style={styles.logoContainer}>
+              <TouchableOpacity onPress={handleLogoPress} activeOpacity={0.8}>
+                <View style={styles.circleStack}>
+                  {/* Outer Circle - Behind everything */}
+                  <Animated.View style={[styles.outerCircle, styles.absoluteCircle, animatedOuterStyle]} />
+                  
+                  {/* Middle Circle - Middle layer */}
+                  <Animated.View style={[styles.middleCircle, styles.absoluteCircle, animatedMiddleStyle]} />
+                  
+                  {/* Inner Circle - Front layer with logo */}
+                  <Animated.View style={[styles.innerCircle, styles.absoluteCircle, animatedInnerStyle]}>
+                    <Image 
+                      source={require('../../assets/images/vocera-logo.png')}
+                      style={styles.logoImage}
+                      resizeMode="contain"
+                    />
+                  </Animated.View>
+                </View>
+              </TouchableOpacity>
+            </Animated.View>
+
+            {/* Trusted and Secure */}
+            <Animated.View entering={FadeInUp.delay(700)} style={styles.trustContainer}>
+              <View style={styles.trustRow}>
+                <Text style={styles.trustText}>Trusted and secure </Text>
+                <Lock size={16} color="#666666" />
+              </View>
+            </Animated.View>
+          </>
         )}
 
         {currentStep === 'name-entry' && (
@@ -284,7 +391,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#f9f6f0',
   },
   scrollView: {
     flex: 1,
@@ -296,18 +403,20 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    marginBottom: 32,
-    marginTop: 20,
+    marginBottom: 20,
+    marginTop: 40,
   },
   title: {
-    fontSize: 42,
+    fontFamily: 'GeorgiaPro-CondBlack',
+    fontSize: 64,
     fontWeight: '700',
-    color: '#007AFF',
+    color: '#000000',
     marginBottom: 8,
   },
   subtitle: {
+    fontFamily: 'Inter-Medium',
     fontSize: 18,
-    color: '#666666',
+    color: '#333333',
     fontWeight: '500',
   },
   mainButton: {
@@ -373,5 +482,120 @@ const styles = StyleSheet.create({
   },
   anotherButton: {
     marginBottom: 8,
+  },
+  // New styles for the updated design
+  buttonContainer: {
+    paddingHorizontal: 20,
+    marginVertical: 20,
+  },
+  beginButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    borderRadius: 25,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  beginButtonText: {
+    color: '#258bb6',
+    fontSize: 16,
+    fontWeight: '500',
+    fontFamily: 'Inter-Medium',
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginVertical: 40,
+  },
+  circleStack: {
+    width: 260,
+    height: 260,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  absoluteCircle: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outerCircle: {
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: 'rgba(220, 217, 212, 0.9)', // Closer to background color
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  middleCircle: {
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(150, 150, 150, 0.7)', // Darker than outer
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  innerCircle: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: '#000000', // Pure black to match PNG logo
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 12,
+    },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 12,
+    // Enhanced inner glow effect
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    zIndex: 10, // Ensure it's on top
+  },
+  logoImage: {
+    width: 90,
+    height: 90,
+  },
+  logoV: {
+    fontSize: 48,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'GeorgiaPro-CondBlack',
+  },
+  waveform: {
+    fontSize: 20,
+    color: '#007AFF',
+    marginTop: -5,
+  },
+  trustContainer: {
+    alignItems: 'center',
+    marginTop: 30,
+  },
+  trustRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  trustText: {
+    fontSize: 16,
+    color: '#666666',
+    fontFamily: 'Inter-Medium',
   },
 });

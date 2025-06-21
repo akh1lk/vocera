@@ -310,7 +310,7 @@ export default function VoxKeyWizardScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#f9f6f0',
   },
   header: {
     padding: 20,
@@ -320,7 +320,7 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E0E0E0',
   },
   title: {
-    fontFamily: 'GeorgiaProCondensed',
+    fontFamily: 'GeorgiaPro-CondBlack',
     fontSize: 28,
     fontWeight: '700',
     color: '#333333',
@@ -345,7 +345,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   progressText: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Regular',
     fontSize: 14,
     color: '#666666',
   },
@@ -355,7 +355,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   description: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Regular',
     fontSize: 16,
     color: '#666666',
     textAlign: 'center',
@@ -382,7 +382,7 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   phraseLabel: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-SemiBold',
     fontSize: 14,
     fontWeight: '600',
     color: '#666666',
@@ -391,7 +391,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   phraseText: {
-    fontFamily: 'GeorgiaProCondensed',
+    fontFamily: 'GeorgiaPro-CondBlack',
     fontSize: 20,
     fontWeight: '600',
     color: '#333333',
@@ -399,7 +399,7 @@ const styles = StyleSheet.create({
     lineHeight: 28,
   },
   recordingTip: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Italic',
     fontSize: 14,
     color: '#666666',
     textAlign: 'center',
@@ -414,7 +414,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   completionTitle: {
-    fontFamily: 'GeorgiaProCondensed',
+    fontFamily: 'GeorgiaPro-CondBlack',
     fontSize: 24,
     fontWeight: '600',
     color: '#333333',

@@ -116,7 +116,7 @@ export default function CallsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#f9f6f0',
   },
   header: {
     padding: 20,
@@ -126,14 +126,14 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E0E0E0',
   },
   title: {
-    fontFamily: 'GeorgiaProCondensed',
+    fontFamily: 'GeorgiaPro-CondBlack',
     fontSize: 32,
     fontWeight: '700',
     color: '#333333',
     marginBottom: 4,
   },
   subtitle: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Regular',
     fontSize: 16,
     color: '#666666',
   },
@@ -160,14 +160,14 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   emptyTitle: {
-    fontFamily: 'GeorgiaProCondensed',
+    fontFamily: 'GeorgiaPro-CondBlack',
     fontSize: 24,
     fontWeight: '600',
     color: '#333333',
     marginBottom: 8,
   },
   emptySubtitle: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Regular',
     fontSize: 16,
     color: '#666666',
     textAlign: 'center',
@@ -192,14 +192,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   callerName: {
-    fontFamily: 'GeorgiaProCondensed',
+    fontFamily: 'GeorgiaPro-CondBlack',
     fontSize: 20,
     fontWeight: '600',
     color: '#333333',
     marginBottom: 4,
   },
   timestamp: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Regular',
     fontSize: 14,
     color: '#666666',
   },
@@ -207,14 +207,14 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
   },
   verificationText: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-SemiBold',
     fontSize: 14,
     fontWeight: '600',
     color: '#34C759',
     marginBottom: 2,
   },
   confidenceText: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Regular',
     fontSize: 12,
     color: '#666666',
   },
@@ -227,7 +227,7 @@ const styles = StyleSheet.create({
     borderColor: '#E0E0E0',
   },
   transcriptLabel: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-SemiBold',
     fontSize: 12,
     fontWeight: '600',
     color: '#666666',
@@ -235,7 +235,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   transcriptText: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Regular',
     fontSize: 14,
     color: '#333333',
     lineHeight: 20,

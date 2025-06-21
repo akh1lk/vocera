@@ -220,7 +220,7 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#f9f6f0',
   },
   header: {
     padding: 20,
@@ -230,14 +230,14 @@ const styles = StyleSheet.create({
     borderBottomColor: '#E0E0E0',
   },
   title: {
-    fontFamily: 'GeorgiaProCondensed',
+    fontFamily: 'GeorgiaPro-CondBlack',
     fontSize: 32,
     fontWeight: '700',
     color: '#333333',
     marginBottom: 4,
   },
   subtitle: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Regular',
     fontSize: 16,
     color: '#666666',
   },
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   sectionTitle: {
-    fontFamily: 'GeorgiaProCondensed',
+    fontFamily: 'GeorgiaPro-CondBlack',
     fontSize: 20,
     fontWeight: '600',
     color: '#333333',
@@ -272,12 +272,12 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   statusLabel: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Regular',
     fontSize: 16,
     color: '#666666',
   },
   statusValue: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-SemiBold',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -285,7 +285,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   helpText: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Regular',
     fontSize: 14,
     color: '#666666',
     lineHeight: 20,
@@ -306,14 +306,14 @@ const styles = StyleSheet.create({
     marginRight: 16,
   },
   preferenceLabel: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-SemiBold',
     fontSize: 16,
     fontWeight: '600',
     color: '#333333',
     marginBottom: 4,
   },
   preferenceDescription: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Regular',
     fontSize: 14,
     color: '#666666',
     lineHeight: 18,
@@ -327,14 +327,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   infoText: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-SemiBold',
     fontSize: 16,
     fontWeight: '600',
     color: '#333333',
     marginBottom: 4,
   },
   infoSubtext: {
-    fontFamily: 'Inter',
+    fontFamily: 'Inter-Regular',
     fontSize: 14,
     color: '#666666',
     textAlign: 'center',
