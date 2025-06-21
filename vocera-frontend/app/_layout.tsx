@@ -13,6 +13,7 @@ export default function RootLayout() {
     'SpaceMono-Regular': require('../assets/fonts/SpaceMono-Regular.ttf'),
     // Georgia Pro fonts
     'GeorgiaPro-CondBlack': require('../assets/fonts/GeorgiaPro-CondBlack.ttf'),
+    'GeorgiaPro-CondRegular': require('../assets/fonts/GeorgiaPro-CondRegular.ttf'),
     'GeorgiaPro-Bold': require('../assets/fonts/GeorgiaPro-Bold.ttf'),
     'GeorgiaPro-BoldItalic': require('../assets/fonts/GeorgiaPro-BoldItalic.ttf'),
     'GeorgiaPro-Black': require('../assets/fonts/GeorgiaPro-Black.ttf'),

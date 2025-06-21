@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -21,7 +21,10 @@ import Animated, {
   withSpring,
   withTiming,
   withSequence,
+  withRepeat,
+  Easing
 } from 'react-native-reanimated';
+import Svg, { Path } from 'react-native-svg';
 import { Mic, Lock } from 'lucide-react-native';
 import { VoxButton } from '../../components/VoxButton';
 import { NameInput } from '../../components/NameInput';
@@ -33,6 +36,45 @@ import { voceraAPI } from '../../services/api';
 import { RecordingResult } from '../../hooks/useAudioRecorder';
 
 type VerificationStep = 'initial' | 'name-entry' | 'ready' | 'recording' | 'processing' | 'result';
+
+// Wave Animation Component
+const WaveAnimation = ({ isActive }: { isActive: boolean }) => {
+  const waveValue = useSharedValue(0);
+
+  useEffect(() => {
+    if (isActive) {
+      waveValue.value = withRepeat(
+        withTiming(30, { 
+          duration: 1200,
+          easing: Easing.linear
+        }),
+        -1,
+        false
+      );
+    } else {
+      waveValue.value = withTiming(0, { duration: 300 });
+    }
+  }, [isActive]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: -waveValue.value }],
+  }));
+
+  return (
+    <View style={{ width: 120, height: 60, overflow: 'hidden' }}>
+      <Animated.View style={[animatedStyle]}>
+        <Svg width="180" height="60" viewBox="0 0 180 60">
+          <Path
+            d="M0 30 Q7.5 10, 15 30 T30 30 T45 30 T60 30 T75 30 T90 30 T105 30 T120 30 T135 30 T150 30 T165 30 T180 30"
+            stroke="#258bb6"
+            strokeWidth="3"
+            fill="none"
+          />
+        </Svg>
+      </Animated.View>
+    </View>
+  );
+};
 
 export default function HomeScreen() {
   const [currentStep, setCurrentStep] = useState<VerificationStep>('initial');
@@ -265,13 +307,12 @@ export default function HomeScreen() {
                   {/* Middle Circle - Middle layer */}
                   <Animated.View style={[styles.middleCircle, styles.absoluteCircle, animatedMiddleStyle]} />
                   
-                  {/* Inner Circle - Front layer with logo */}
+                  {/* Inner Circle - Front layer with wave animation */}
                   <Animated.View style={[styles.innerCircle, styles.absoluteCircle, animatedInnerStyle]}>
-                    <Image 
-                      source={require('../../assets/images/vocera-logo.png')}
-                      style={styles.logoImage}
-                      resizeMode="contain"
-                    />
+                    <View style={styles.waveContainer}>
+                      <WaveAnimation isActive={true} />
+                    </View>
+                    <Text style={styles.logoV}>V</Text>
                   </Animated.View>
                 </View>
               </TouchableOpacity>
@@ -586,10 +627,16 @@ const styles = StyleSheet.create({
     height: 90,
   },
   logoV: {
-    fontSize: 48,
+    fontSize: 64,
     fontWeight: '700',
     color: '#FFFFFF',
-    fontFamily: 'GeorgiaPro-CondBlack',
+    fontFamily: 'GeorgiaPro-CondRegular',
+    position: 'absolute',
+    zIndex: 2,
+  },
+  waveContainer: {
+    position: 'absolute',
+    zIndex: 1,
   },
   waveform: {
     fontSize: 20,
