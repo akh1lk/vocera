@@ -14,7 +14,7 @@ app = Flask(__name__)
 db = FileDatabase()
 
 # Tunable parameters for scoring thresholds
-OPEN_SMILE_THRESHOLD_MULTIPLIER = 2.0
+OPEN_SMILE_THRESHOLD_MULTIPLIER = 1.8
 
 
 @app.route("/calibrate", methods=["POST"])
