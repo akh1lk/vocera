@@ -10,6 +10,9 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [loaded] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
+    // Note: In production, load these from a CDN or local files
+    // GeorgiaProCondensed: require('../assets/fonts/GeorgiaProCondensed.ttf'),
+    // Inter: require('../assets/fonts/Inter.ttf'),
   });
 
   if (!loaded) {
@@ -21,6 +24,13 @@ export default function RootLayout() {
     <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen 
+          name="voxkey-wizard" 
+          options={{ 
+            headerShown: false,
+            presentation: 'modal',
+          }} 
+        />
         <Stack.Screen name="+not-found" />
       </Stack>
       <StatusBar style="auto" />
