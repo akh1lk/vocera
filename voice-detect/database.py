@@ -26,10 +26,13 @@ class SupabaseDatabase:
         try:
             logger.info(f"DEBUG: Looking for id: {id}")
 
+            # 1. Get the most recent active vox_key for the user
             key_response = (
-                self.client.table("users")
+                self.client.table("vox_keys")
                 .select("*")
-                .eq("id", id)
+                .eq("user_id", id)
+                .eq("is_active", True)
+                .order("created_at", desc=True)
                 .limit(1)
                 .single()
                 .execute()
@@ -52,7 +55,7 @@ class SupabaseDatabase:
 
             # 2. Get all associated vox_samples (the vectors)
             vectors_response = (
-                self.client.table("vox_samples")
+                self.client.table("vox_vectors")
                 .select("embedding")
                 .eq("vox_key_id", vox_key_id)
                 .execute()
@@ -67,7 +70,7 @@ class SupabaseDatabase:
 
             # 3. Construct the profile object in the format app.py expects
             profile = {
-                "id": vox_key_data["id"],
+                "user_id": vox_key_data["user_id"],
                 "training_audio_url": vox_key_data.get("training_audio_url"),
                 "opensmile_vectors": [
                     np.array(vector["embedding"]) for vector in vectors_response.data
@@ -89,18 +92,67 @@ class SupabaseDatabase:
             logger.error(f"ERROR: Full traceback: {traceback.format_exc()}")
             return None
 
+    def send_vox_vectors(self, vox_key_id, vectors):
+        """
+        Sends voice vectors to the vox_vectors table in Supabase.
+
+        Args:
+            vox_key_id (str): The UUID of the vox_key these vectors belong to
+            vectors (list): List of numpy arrays representing the voice feature vectors
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(
+                f"DEBUG: Sending {len(vectors)} vectors for vox_key_id: {vox_key_id}"
+            )
+
+            # Prepare the vectors for insertion
+            vectors_to_insert = [
+                {
+                    "vox_key_id": vox_key_id,
+                    "embedding": vector.tolist(),  # Convert numpy array to list
+                }
+                for vector in vectors
+            ]
+
+            # Insert all vectors at once
+            response = (
+                self.client.table("vox_vectors").insert(vectors_to_insert).execute()
+            )
+
+            if response.data:
+                logger.info(
+                    f"DEBUG: Successfully inserted {len(response.data)} vectors"
+                )
+                return True
+            else:
+                logger.error(f"ERROR: Failed to insert vectors - no data returned")
+                return False
+
+        except Exception as e:
+            logger.error(
+                f"ERROR: Exception in send_vox_vectors for vox_key_id {vox_key_id}: {e}"
+            )
+            logger.error(f"ERROR: Exception type: {type(e)}")
+            import traceback
+
+            logger.error(f"ERROR: Full traceback: {traceback.format_exc()}")
+            return False
+
     def upsert_profile(self, profile_data):
-        """Creates a new user profile in Supabase by adding a new vox_key and its samples."""
-        id = profile_data.get("id")
-        if not id:
-            raise ValueError("id is required to upsert a profile.")
+        """Creates a new user profile in Supabase by adding a new vox_key and its vectors."""
+        user_id = profile_data.get("user_id")
+        if not user_id:
+            raise ValueError("user_id is required to upsert a profile.")
 
         try:
             # 1. Insert a new record into vox_keys
             # TODO: Add 'avg_distance' and 'scaler_data' to this dict when the
             # schema is updated with the new columns.
             new_vox_key_data = {
-                "id": id,
+                "user_id": user_id,
                 "training_audio_url": profile_data.get("training_audio_url"),
                 "is_active": True,
             }
@@ -114,41 +166,38 @@ class SupabaseDatabase:
 
             new_vox_key_id = key_insert_response.data[0]["id"]
 
-            # 2. Prepare and insert all the vectors into vox_samples
-            vectors_to_insert = [
-                {
-                    "vox_key_id": new_vox_key_id,
-                    "embedding": vector.tolist(),  # Convert numpy array to list
-                }
-                for vector in profile_data.get("opensmile_vectors", [])
-            ]
-
-            if vectors_to_insert:
-                self.client.table("vox_samples").insert(vectors_to_insert).execute()
+            # 2. Use the new send_vox_vectors function to insert the vectors
+            vectors = profile_data.get("opensmile_vectors", [])
+            if vectors:
+                success = self.send_vox_vectors(new_vox_key_id, vectors)
+                if not success:
+                    raise Exception("Failed to insert vectors into vox_vectors.")
 
             return profile_data
 
         except Exception as e:
-            raise IOError(f"Error saving profile for user {id} to Supabase: {e}")
+            raise IOError(f"Error saving profile for user {user_id} to Supabase: {e}")
 
-    def delete_profile(self, id):
-        """Deletes all vox_keys and associated vox_samples for a user."""
+    def delete_profile(self, user_id):
+        """Deletes all vox_keys and associated vox_vectors for a user."""
         try:
-            # The ON DELETE CASCADE on the foreign key should handle deleting vox_samples
-            self.client.table("vox_keys").delete().eq("id", id).execute()
+            # The ON DELETE CASCADE on the foreign key should handle deleting vox_vectors
+            self.client.table("vox_keys").delete().eq("user_id", user_id).execute()
             return True
         except Exception as e:
-            print(f"Error deleting profile for user {id} from Supabase: {e}")
+            logger.error(
+                f"Error deleting profile for user {user_id} from Supabase: {e}"
+            )
             return False
 
     def list_users(self):
         """Returns a list of all unique user IDs that have profiles."""
         try:
-            response = self.client.table("vox_keys").select("id").execute()
+            response = self.client.table("vox_keys").select("user_id").execute()
             if response.data:
-                ids = {item["id"] for item in response.data}
-                return list(ids)
+                user_ids = {item["user_id"] for item in response.data}
+                return list(user_ids)
             return []
         except Exception as e:
-            print(f"Error listing users from Supabase: {e}")
+            logger.error(f"Error listing users from Supabase: {e}")
             return []

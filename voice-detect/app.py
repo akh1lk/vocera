@@ -52,9 +52,10 @@ db = SupabaseDatabase(supabase_client=supabase)
 OPEN_SMILE_THRESHOLD_MULTIPLIER = 1.8
 
 
+# TODO not sure if this would actually work
 def download_audio_from_url(audio_url):
     """
-    Downloads an audio file from a URL and saves it to a temporary local file.
+    Downloads an audio file from the supabase bucket URL and saves it to a temporary local file.
     """
     try:
         temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
@@ -69,18 +70,21 @@ def download_audio_from_url(audio_url):
         return None
 
 
+# TODO are we able to send the vectors to the supabase?
 @app.route("/calibrate", methods=["POST"])
 def calibrate():
     """
     Calibrates a user's voice profile with StandardScaler normalization.
-    Expects 10 .wav files and a user_id.
+    Expects 10 .wav files and a vox_key_id.
     """
-    if "user_id" not in request.form:
-        return jsonify({"error": "user_id is required"}), 400
+    # Check for required form fields
+    if "vox_key_id" not in request.form:
+        return jsonify({"error": "vox_key_id is required"}), 400
 
-    user_id = request.form.get("user_id")
-    files = request.files.getlist("files")
-    training_audio_url = request.form.get("training_audio_url")  # Get the new URL field
+    vox_key_id = request.form.get("vox_key_id")
+
+    # Get audio files - they should be in the 'audio_files' field
+    files = request.files.getlist("audio_files")
 
     if len(files) != 10:
         return jsonify({"error": "10 audio files are required for calibration"}), 400
@@ -117,19 +121,13 @@ def calibrate():
         # Serialize scaler for storage
         serialized_scaler = serialize_scaler(scaler)
 
-        # Store in the database (now includes scaler)
-        db.upsert_profile(
-            {
-                "user_id": user_id,
-                "opensmile_vectors": normalized_vectors,
-                "avg_euclidean_distance": avg_euclidean_distance,
-                "scaler": serialized_scaler,  # Store scaler parameters
-                "feature_normalization": "StandardScaler",  # Track normalization method
-                "training_audio_url": training_audio_url,  # Store the URL
-            }
-        )
+        # Send the vectors directly to the existing vox_key
+        success = db.send_vox_vectors(vox_key_id, normalized_vectors)
 
-        print(f"✅ Calibration successful for {user_id}")
+        if not success:
+            return jsonify({"error": "Failed to save vectors to database"}), 500
+
+        print(f"✅ Calibration successful for vox_key_id: {vox_key_id}")
         print(f"   Normalized avg distance: {avg_euclidean_distance:.4f}")
         print(
             f"   Raw avg distance would have been: {np.mean([euclidean(pair[0], pair[1]) for pair in combinations(raw_feature_vectors, 2)]):.4f}"
@@ -150,23 +148,24 @@ def calibrate():
     return jsonify(
         {
             "status": "calibration successful with StandardScaler normalization",
-            "user_id": user_id,
+            "vox_key_id": vox_key_id,
             "files_received": len(files),
             "normalized_avg_distance": avg_euclidean_distance,
         }
     )
 
 
+# TODO: A LOT OF THIS STUFF NEEDS TO BE FIXED, BECAUSE IT'S NOT ACTUALLY INDEXING THROUGH SUPABASE
 @app.route("/verify", methods=["POST"])
 def verify():
     """
     Verifies a user's voice against their normalized profile.
-    Expects 1 .wav file and a user_id.
+    Expects 1 .wav file and a id.
     """
-    if "user_id" not in request.form:
-        return jsonify({"error": "user_id is required"}), 400
+    if "id" not in request.form:
+        return jsonify({"error": "id is required"}), 400
 
-    user_id = request.form.get("user_id")
+    id = request.form.get("id")
     files = request.files.getlist("files")
 
     if len(files) != 1:
@@ -176,14 +175,18 @@ def verify():
     reference_audio_path = None
     try:
         # Save file temporarily
+
+        # this temp file is the one that we're verifying against the profile, from the suspicious caller
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
             files[0].save(temp_file)
             temp_file_path = temp_file.name
 
         # Fetch user profile from the database
-        profile = db.get_profile("63da7120-0f9a-4087-a5bb-fefa574115f6")
+        profile = db.get_profile(
+            "63da7120-0f9a-4087-a5bb-fefa574115f6"
+        )  # TODO hardcoded for now
         if not profile:
-            logger.error(f"ln 186 error could not find {user_id}")
+            logger.error(f"ln 186 error could not find {id}")
             return jsonify({"error": "User profile not found"}), 404
 
         # --- Speaker Verification (Primary) ---
@@ -194,7 +197,9 @@ def verify():
             reference_audio_path = download_audio_from_url(training_url)
             if reference_audio_path:
                 # Placeholder for your actual function call
-                # speaker_verification_result = verify_speaker_from_data(reference_audio_path, temp_file_path)
+                speaker_verification_result = verify_speaker_from_data(
+                    reference_audio_path, temp_file_path
+                )
                 print(
                     f"Calling speaker verification with: {reference_audio_path} and {temp_file_path}"
                 )
