@@ -6,3 +6,4 @@ Werkzeug
 gunicorn
 openai
 python-dotenv 
+scikit-learn 

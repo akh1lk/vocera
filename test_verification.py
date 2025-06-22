@@ -191,6 +191,7 @@ def main():
         users = [
             ("laerdon", "laerdonsampledata/real", "laerdonsampledata/fake"),
             ("srikar", "srikarsampledata/real", "srikarsampledata/fake"),
+            ("gold", "goldsampledata/real", "goldsampledata/fake"),
         ]
 
         all_metrics = []

@@ -85,6 +85,7 @@ def main():
         users = [
             ("laerdon", "laerdonsampledata/calib"),
             ("srikar", "srikarsampledata/calib"),
+            ("gold", "goldsampledata/calib"),
         ]
 
         success_count = 0
