@@ -17,8 +17,12 @@ import Animated, {
   withTiming,
   withSequence,
   withRepeat,
+  withDelay,
   Easing,
-  runOnJS
+  runOnJS,
+  interpolate,
+  FadeIn,
+  cancelAnimation
 } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
 import { Mic, Lock, X } from 'lucide-react-native';
@@ -39,6 +43,8 @@ const WaveAnimation = ({ isActive }: { isActive: boolean }) => {
 
   useEffect(() => {
     if (isActive) {
+      // Reset to 0 before starting new animation
+      waveValue.value = 0;
       waveValue.value = withRepeat(
         withTiming(30, {
           duration: 1200,
@@ -48,8 +54,15 @@ const WaveAnimation = ({ isActive }: { isActive: boolean }) => {
         false
       );
     } else {
+      // Cancel any ongoing animation
+      cancelAnimation(waveValue);
       waveValue.value = withTiming(0, { duration: 300 });
     }
+    
+    // Cleanup function
+    return () => {
+      cancelAnimation(waveValue);
+    };
   }, [isActive]);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -84,6 +97,7 @@ export default function HomeScreen() {
   const [isAnimated, setIsAnimated] = useState(false);
   const [showNameInput, setShowNameInput] = useState(false);
   const [liveTranscript, setLiveTranscript] = useState('');
+  const [nameSubmitted, setNameSubmitted] = useState(false);
 
   // Animation values
   const logoTranslateY = useSharedValue(0);
@@ -91,13 +105,25 @@ export default function HomeScreen() {
   const fadeOutAnimation = useSharedValue(1);
   const middleContentOpacity = useSharedValue(1);
   const nameInputOpacity = useSharedValue(0);
+  const instructionsOpacity = useSharedValue(0);
+  const xButtonOpacity = useSharedValue(0);
+  const xButtonScale = useSharedValue(0.8);
+
+  // Entrance animation values
+  const entranceProgress = useSharedValue(0);
+  const titleOpacity = useSharedValue(0);
+  const subtitleOpacity = useSharedValue(0);
+  const logoOpacity = useSharedValue(0);
+  const micTextOpacity = useSharedValue(0);
+  const trustOpacity = useSharedValue(0);
 
   // Ripple animation values
-  const outerRippleScale = useSharedValue(1);
-  const middleRippleScale = useSharedValue(1);
-  const innerRippleScale = useSharedValue(1);
-  const outerRippleOpacity = useSharedValue(1);
-  const middleRippleOpacity = useSharedValue(0.7);
+  const outerRippleScale = useSharedValue(0.8);
+  const middleRippleScale = useSharedValue(0.8);
+  const innerRippleScale = useSharedValue(0.8);
+  const outerRippleOpacity = useSharedValue(0);
+  const middleRippleOpacity = useSharedValue(0);
+  const innerRippleOpacity = useSharedValue(0);
 
   const {
     user,
@@ -106,85 +132,188 @@ export default function HomeScreen() {
     addSavedCall
   } = useVoceraStore();
 
+  // Entrance animations on mount
+  useEffect(() => {
+
+    // Title fades in first
+    titleOpacity.value = withTiming(1, { 
+      duration: 800,
+      easing: Easing.out(Easing.quad)
+    });
+
+    // Subtitle follows
+    subtitleOpacity.value = withDelay(200, withTiming(1, { 
+      duration: 800,
+      easing: Easing.out(Easing.quad)
+    }));
+
+    // Logo scales up and fades in
+    logoOpacity.value = withDelay(400, withTiming(1, { 
+      duration: 1000,
+      easing: Easing.out(Easing.cubic)
+    }));
+
+    // Ripples animate in sequence
+    outerRippleScale.value = withDelay(600, withSpring(1, {
+      damping: 15,
+      stiffness: 100
+    }));
+    outerRippleOpacity.value = withDelay(600, withTiming(1, { duration: 600 }));
+
+    middleRippleScale.value = withDelay(700, withSpring(1, {
+      damping: 15,
+      stiffness: 100
+    }));
+    middleRippleOpacity.value = withDelay(700, withTiming(0.7, { duration: 600 }));
+
+    innerRippleScale.value = withDelay(800, withSpring(1, {
+      damping: 15,
+      stiffness: 100
+    }));
+    innerRippleOpacity.value = withDelay(800, withTiming(1, { duration: 600 }));
+
+    // Mic text and trust text fade in last
+    micTextOpacity.value = withDelay(1000, withTiming(1, { 
+      duration: 600,
+      easing: Easing.out(Easing.quad)
+    }));
+
+    trustOpacity.value = withDelay(1200, withTiming(1, { 
+      duration: 600,
+      easing: Easing.out(Easing.quad)
+    }));
+
+    // Overall entrance progress
+    entranceProgress.value = withTiming(1, { 
+      duration: 1500,
+      easing: Easing.out(Easing.cubic)
+    });
+  }, []);
+
   const handleLogoPress = () => {
-    // First do the ripple effect
+    // Smoother ripple effect with better timing
     innerRippleScale.value = withSequence(
-      withTiming(1.1, { duration: 300 }),
-      withTiming(1, { duration: 400 })
+      withSpring(1.15, { damping: 8, stiffness: 150 }),
+      withSpring(1, { damping: 10, stiffness: 100 })
     );
 
     setTimeout(() => {
       middleRippleScale.value = withSequence(
-        withTiming(1.2, { duration: 400 }),
-        withTiming(1, { duration: 500 })
+        withSpring(1.25, { damping: 8, stiffness: 120 }),
+        withSpring(1, { damping: 10, stiffness: 100 })
       );
       middleRippleOpacity.value = withSequence(
-        withTiming(0.9, { duration: 400 }),
-        withTiming(0.7, { duration: 500 })
+        withTiming(0.9, { duration: 300 }),
+        withTiming(0.7, { duration: 400 })
       );
-    }, 100);
+    }, 50);
 
     setTimeout(() => {
       outerRippleScale.value = withSequence(
-        withTiming(1.15, { duration: 500 }),
-        withTiming(1, { duration: 600 })
+        withSpring(1.2, { damping: 8, stiffness: 100 }),
+        withSpring(1, { damping: 10, stiffness: 100 })
       );
       outerRippleOpacity.value = withSequence(
-        withTiming(1.0, { duration: 500 }),
-        withTiming(0.9, { duration: 600 })
+        withTiming(1.0, { duration: 300 }),
+        withTiming(0.9, { duration: 400 })
       );
-    }, 200);
+    }, 100);
 
-    // After ripple completes, fade out text, then move logo
+    // Smoother fade out and transition
     setTimeout(() => {
-      // Fade out header and trusted text (but don't remove from layout)
-      fadeOutAnimation.value = withTiming(0, { duration: 600 }); // fade earlier & faster
+      // Fade out all text elements smoothly
+      fadeOutAnimation.value = withTiming(0, { 
+        duration: 400,
+        easing: Easing.in(Easing.quad)
+      });
+      micTextOpacity.value = withTiming(0, { duration: 300 });
+      trustOpacity.value = withTiming(0, { duration: 300 });
 
-      // Move logo to top and shrink AFTER fade completes
+      // Move logo with better easing
       setTimeout(() => {
-        logoTranslateY.value = withTiming(-320, { // move not as high
-          duration: 1600,
-          easing: Easing.out(Easing.cubic)
+        logoTranslateY.value = withSpring(-320, {
+          damping: 20,
+          stiffness: 90,
+          mass: 1
         });
-        logoScale.value = withTiming(0.4, {
-          duration: 2000,
-          easing: Easing.out(Easing.cubic)
+        logoScale.value = withSpring(0.4, {
+          damping: 15,
+          stiffness: 100
         });
 
-        // Set animated state after animation starts
+        // Fade out ripples smoothly
+        middleContentOpacity.value = withTiming(0, { 
+          duration: 600,
+          easing: Easing.out(Easing.quad)
+        });
+
         setTimeout(() => {
           runOnJS(setIsAnimated)(true);
           runOnJS(setShowNameInput)(true);
           
-          // Fade out the middle ripple circles content
-          middleContentOpacity.value = withTiming(0, { duration: 800 });
+          // Animate X button in
+          xButtonOpacity.value = withSpring(1, {
+            damping: 15,
+            stiffness: 100
+          });
+          xButtonScale.value = withSpring(1, {
+            damping: 12,
+            stiffness: 150
+          });
           
-          // Fade in the name input after logo finishes moving (2000ms + small delay)
+          // Fade in name input smoothly
           setTimeout(() => {
-            nameInputOpacity.value = withTiming(1, { duration: 600, easing: Easing.out(Easing.quad) });
-          }, 2100); // Wait for logo animation to complete
+            nameInputOpacity.value = withSpring(1, {
+              damping: 20,
+              stiffness: 100
+            });
+          }, 400);
         }, 100);
-      }, 600); // wait for fade to finish
-    }, 700);
+      }, 300);
+    }, 500);
   };
 
   const handleResetAnimation = () => {
-    // Reset all animations with smooth easing
-    logoTranslateY.value = withTiming(0, {
-      duration: 1000,
-      easing: Easing.out(Easing.cubic)
+    // Hide X button immediately
+    xButtonOpacity.value = withTiming(0, { duration: 0 });
+    xButtonScale.value = withTiming(0.8, { 
+      duration: 200,
+      easing: Easing.in(Easing.quad)
     });
-    logoScale.value = withTiming(1, {
-      duration: 1000,
-      easing: Easing.out(Easing.cubic)
+    
+    // Fade out name input and instructions first
+    nameInputOpacity.value = withTiming(0, { duration: 300 });
+    instructionsOpacity.value = withTiming(0, { duration: 300 });
+    
+    // Smooth reset with spring animations
+    logoTranslateY.value = withSpring(0, {
+      damping: 15,
+      stiffness: 80
     });
-    fadeOutAnimation.value = withTiming(1, { duration: 800 });
-    middleContentOpacity.value = withTiming(1, { duration: 800 });
-    nameInputOpacity.value = withTiming(0, { duration: 400 });
-    setIsAnimated(false);
-    setShowNameInput(false);
-    setLiveTranscript('');
-    setCurrentTranscript('');
+    logoScale.value = withSpring(1, {
+      damping: 15,
+      stiffness: 80
+    });
+    
+    // Wait for button to return before fading text back in
+    setTimeout(() => {
+      // Fade elements back in after button is in place
+      fadeOutAnimation.value = withTiming(1, { 
+        duration: 600,
+        easing: Easing.out(Easing.quad)
+      });
+      middleContentOpacity.value = withTiming(1, { duration: 600 });
+      micTextOpacity.value = withTiming(1, { duration: 400 });
+      trustOpacity.value = withTiming(1, { duration: 400 });
+    }, 800); // Wait for spring animation to mostly complete
+    
+    setTimeout(() => {
+      setIsAnimated(false);
+      setShowNameInput(false);
+      setLiveTranscript('');
+      setCurrentTranscript('');
+      setNameSubmitted(false);
+    }, 300);
   };
 
   // Animated styles
@@ -193,11 +322,35 @@ export default function HomeScreen() {
       { translateY: logoTranslateY.value },
       { scale: logoScale.value }
     ],
+    opacity: logoOpacity.value
   }));
 
-  // Add fade out to all text except the animated button
-  const animatedFadeOutStyle = useAnimatedStyle(() => ({
-    opacity: fadeOutAnimation.value,
+  const animatedTitleStyle = useAnimatedStyle(() => ({
+    opacity: titleOpacity.value * fadeOutAnimation.value,
+    transform: [{
+      translateY: interpolate(titleOpacity.value, [0, 1], [20, 0])
+    }]
+  }));
+
+  const animatedSubtitleStyle = useAnimatedStyle(() => ({
+    opacity: subtitleOpacity.value * fadeOutAnimation.value,
+    transform: [{
+      translateY: interpolate(subtitleOpacity.value, [0, 1], [20, 0])
+    }]
+  }));
+
+  const animatedMicTextStyle = useAnimatedStyle(() => ({
+    opacity: micTextOpacity.value * fadeOutAnimation.value,
+    transform: [{
+      translateY: interpolate(micTextOpacity.value, [0, 1], [10, 0])
+    }]
+  }));
+
+  const animatedTrustStyle = useAnimatedStyle(() => ({
+    opacity: trustOpacity.value * fadeOutAnimation.value,
+    transform: [{
+      translateY: interpolate(trustOpacity.value, [0, 1], [10, 0])
+    }]
   }));
 
   const animatedMiddleContentStyle = useAnimatedStyle(() => ({
@@ -206,20 +359,40 @@ export default function HomeScreen() {
 
   const animatedNameInputStyle = useAnimatedStyle(() => ({
     opacity: nameInputOpacity.value,
+    transform: [{
+      scale: interpolate(nameInputOpacity.value, [0, 1], [0.9, 1])
+    }]
+  }));
+
+  const animatedInstructionsStyle = useAnimatedStyle(() => ({
+    opacity: instructionsOpacity.value,
+    transform: [{
+      translateY: interpolate(instructionsOpacity.value, [0, 1], [-10, 0])
+    }],
+    pointerEvents: instructionsOpacity.value > 0 ? 'auto' : 'none',
   }));
 
   const animatedOuterStyle = useAnimatedStyle(() => ({
     transform: [{ scale: outerRippleScale.value }],
-    opacity: outerRippleOpacity.value,
+    opacity: outerRippleOpacity.value * middleContentOpacity.value,
   }));
 
   const animatedMiddleStyle = useAnimatedStyle(() => ({
     transform: [{ scale: middleRippleScale.value }],
-    opacity: middleRippleOpacity.value,
+    opacity: middleRippleOpacity.value * middleContentOpacity.value,
   }));
 
   const animatedInnerStyle = useAnimatedStyle(() => ({
     transform: [{ scale: innerRippleScale.value }],
+    opacity: innerRippleOpacity.value,
+  }));
+
+  // Create animated style for X button
+  const animatedXButtonStyle = useAnimatedStyle(() => ({
+    opacity: xButtonOpacity.value,
+    transform: [{
+      scale: xButtonScale.value
+    }]
   }));
 
   const handleStartVerification = () => {
@@ -248,8 +421,38 @@ export default function HomeScreen() {
     }
 
     setNameError('');
-    // Store the name and continue with verification process
     console.log('Name stored:', trimmedName);
+    
+    // Slower fade out for name input
+    nameInputOpacity.value = withTiming(0, { 
+      duration: 500,  // Increased from 300
+      easing: Easing.in(Easing.quad)
+    });
+    
+    setTimeout(() => {
+      instructionsOpacity.value = withSpring(1, {
+        damping: 20,
+        stiffness: 100
+      });
+    }, 400);  // Increased delay to match slower fade
+
+    setNameSubmitted(true);
+  };
+
+  const handleEditName = () => {
+    instructionsOpacity.value = withTiming(0, { 
+      duration: 300,
+      easing: Easing.in(Easing.quad)
+    });
+    
+    setTimeout(() => {
+      nameInputOpacity.value = withSpring(1, {
+        damping: 20,
+        stiffness: 100
+      });
+    }, 200);
+
+    setNameSubmitted(false);
   };
 
   const handleRecordingStart = () => {
@@ -319,25 +522,29 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <LinearGradient
         colors={['transparent', 'rgba(37, 139, 182, 0.08)', 'rgba(37, 139, 182, 0.18)', 'rgba(37, 139, 182, 0.3)']}
-        locations={[0, 0.3, 0.7, 1]}
+        locations={[0, 0.4, 0.8, 1]}
         style={styles.gradientContainer}
       >
-        {/* X Button - Fixed position */}
+        {/* X Button - Fixed position with animation */}
         {isAnimated && (
-          <TouchableOpacity onPress={handleResetAnimation} style={styles.resetButton}>
-            <X size={24} color="#FF3B30" />
-          </TouchableOpacity>
+          <Animated.View
+            style={[styles.resetButton, animatedXButtonStyle]}
+          >
+            <TouchableOpacity onPress={handleResetAnimation}>
+              <X size={24} color="#000000" />
+            </TouchableOpacity>
+          </Animated.View>
         )}
 
         <View style={styles.content}>
-          {/* Header - ALWAYS present, just fades */}
-          <Animated.View style={[styles.header, animatedFadeOutStyle]}>
-            <Text style={styles.title}>Vocera</Text>
-            <Text style={styles.subtitle}>Authenticate with a voice</Text>
-          </Animated.View>
+          {/* Header - Animated entrance */}
+          <View style={styles.header}>
+            <Animated.Text style={[styles.title, animatedTitleStyle]}>Vocera</Animated.Text>
+            <Animated.Text style={[styles.subtitle, animatedSubtitleStyle]}>Authenticate with a voice</Animated.Text>
+          </View>
 
-          {/* Move the 'Tap to begin voice verification' text above the button */}
-          <Animated.View style={[{ alignItems: 'center', marginTop: 4, marginBottom: 0 }, animatedFadeOutStyle]}>
+          {/* Tap to begin text - Animated entrance */}
+          <Animated.View style={[{ alignItems: 'center', marginTop: 4, marginBottom: 0 }, animatedMicTextStyle]}>
             <View style={{ flexDirection: 'row', alignItems: 'center' }}>
               <Mic size={20} color="#258bb6" style={{ marginRight: 8 }} />
               <Text style={styles.beginButtonText}>Tap to begin voice verification</Text>
@@ -348,20 +555,20 @@ export default function HomeScreen() {
           <Animated.View style={styles.buttonContainer}>
             {currentStep === 'initial' && (
               <>
-                {/* Circular Logo Design - Moves and shrinks */}
+                {/* Circular Logo Design - Animated entrance */}
                 <Animated.View style={[styles.logoContainer, animatedLogoStyle]}>
                   <TouchableOpacity onPress={handleLogoPress} activeOpacity={0.8}>
                     <View style={styles.circleStack}>
                       {/* Outer Circle */}
-                      <Animated.View style={[styles.outerCircle, styles.absoluteCircle, animatedOuterStyle, animatedMiddleContentStyle]} />
+                      <Animated.View style={[styles.outerCircle, styles.absoluteCircle, animatedOuterStyle]} />
 
                       {/* Middle Circle */}
-                      <Animated.View style={[styles.middleCircle, styles.absoluteCircle, animatedMiddleStyle, animatedMiddleContentStyle]} />
+                      <Animated.View style={[styles.middleCircle, styles.absoluteCircle, animatedMiddleStyle]} />
 
                       {/* Inner Circle */}
                       <Animated.View style={[styles.innerCircle, styles.absoluteCircle, animatedInnerStyle]}>
                         <Animated.View style={[styles.waveContainer, animatedMiddleContentStyle]}>
-                          <WaveAnimation isActive={true} />
+                          <WaveAnimation isActive={currentStep === 'initial' && !isAnimated} />
                         </Animated.View>
                         <Text style={styles.logoV}>V</Text>
                       </Animated.View>
@@ -373,23 +580,34 @@ export default function HomeScreen() {
 
             {/* Simple Name Input - appears right below the V button after transition */}
             {showNameInput && (
-              <Animated.View style={[styles.nameInputBelowButton, animatedNameInputStyle]}>
-                <TextInput
-                  style={styles.nameTextInput}
-                  value={callerName}
-                  onChangeText={setCallerName}
-                  placeholder="Enter name of caller"
-                  placeholderTextColor="#999"
-                  autoFocus
-                  autoCapitalize="words"
-                  returnKeyType="done"
-                  onSubmitEditing={handleNameSubmit}
-                />
-                {nameError ? <Text style={styles.nameError}>{nameError}</Text> : null}
-              </Animated.View>
+              <>
+                {/* Always render BOTH components, control visibility with opacity only */}
+                <Animated.View style={[styles.nameInputBelowButton, animatedNameInputStyle]}>
+                  <TextInput
+                    style={styles.nameTextInput}
+                    value={callerName}
+                    onChangeText={setCallerName}
+                    placeholder="Enter name of caller"
+                    placeholderTextColor="#999"
+                    autoFocus={!nameSubmitted}
+                    autoCapitalize="words"
+                    returnKeyType="done"
+                    onSubmitEditing={handleNameSubmit}
+                    editable={!nameSubmitted}
+                    pointerEvents={nameSubmitted ? 'none' : 'auto'}
+                  />
+                  {nameError ? <Text style={styles.nameError}>{nameError}</Text> : null}
+                </Animated.View>
+
+                <Animated.View style={[styles.instructions, animatedInstructionsStyle]}>
+                  <Text style={styles.instructionsText}>
+                    Ask for {callerName || 'the caller'}'s next words to be their Vox Key phrase
+                  </Text>
+                </Animated.View>
+              </>
             )}
 
-          <Animated.View style={[styles.trustContainer, animatedFadeOutStyle]}>
+          <Animated.View style={[styles.trustContainer, animatedTrustStyle]}>
             <View style={styles.trustRow}>
               <Text style={styles.trustText}>Trusted and secure </Text>
               <Lock size={16} color="#666666" />
@@ -735,16 +953,33 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     minWidth: 280,
     textAlign: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
+    shadowColor: '#258bb6',      // Your blue glow
+    shadowOffset: { width: 0, height: 0 },  // Even glow all around
+    shadowOpacity: 0.6,          // Visible glow
+    shadowRadius: 12,            // Size of glow
+    elevation: 8,
   },
   nameError: {
     color: '#FF3B30',
     fontSize: 14,
     marginTop: 8,
     textAlign: 'center',
+  },
+  instructions: {
+    position: 'absolute',
+    top: 50, // Much higher up
+    left: 20,
+    right: 20,
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  instructionsText: {
+    fontFamily: 'GeorgiaPro-CondRegular', // Changed to Georgia Pro
+    fontSize: 30,
+    fontWeight: '600',
+    color: '#258bb6',
+    textAlign: 'center',
+    lineHeight: 28,
+    marginBottom: 16,
   },
 });

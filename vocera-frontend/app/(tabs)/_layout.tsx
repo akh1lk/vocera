@@ -1,9 +1,43 @@
 import { Tabs } from 'expo-router';
-import React from 'react';
-import { Platform } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Platform, SafeAreaView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { supabase } from '../../lib/supabase';
+import { Session } from '@supabase/supabase-js';
+import { LinearGradient } from 'expo-linear-gradient';
+import Auth from '../../components/Auth';
 
 export default function TabLayout() {
+  const [session, setSession] = useState<Session | null>(null);
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  // Show auth screen if not authenticated
+  if (!session) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#F9F6F0' }}>
+        <LinearGradient
+          colors={['transparent', 'rgba(37, 139, 182, 0.08)', 'rgba(37, 139, 182, 0.18)', 'rgba(37, 139, 182, 0.3)']}
+          locations={[0, 0.4, 0.8, 1]}
+          style={[{ flex: 1 }, { transform: [{ translateY: 100 }], position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }]}
+        />
+        <Auth />
+      </SafeAreaView>
+    );
+  }
+
   return (
     <Tabs
       screenOptions={{

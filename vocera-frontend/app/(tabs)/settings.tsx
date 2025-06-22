@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
@@ -14,8 +14,9 @@ import {
 } from 'react-native';
 import { useVoceraStore } from '../../store/voceraStore';
 import { router } from 'expo-router';
-import { User, Shield, KeyRound, ChevronRight, X } from 'lucide-react-native';
+import { User, Shield, KeyRound, ChevronRight, X, LogOut } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { supabase } from '../../lib/supabase';
 
 export default function SettingsScreen() {
   const { user, resetVoxKey } = useVoceraStore();
@@ -23,9 +24,6 @@ export default function SettingsScreen() {
   const [microphonePermission, setMicrophonePermission] = useState('Not Determined');
   const [isModalVisible, setModalVisible] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
-
-  const [fullName, setFullName] = useState('John Doe');
-  const [email, setEmail] = useState('john.doe@example.com');
 
   const handleCheckMicrophonePermission = async () => {
     // In a real app, you'd use a library like expo-av or react-native-permissions
@@ -73,13 +71,36 @@ export default function SettingsScreen() {
     });
   };
 
+  const handleSignOut = async () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel',
+        },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            const { error } = await supabase.auth.signOut();
+            if (error) {
+              Alert.alert('Error', 'Failed to sign out. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const styles = getStyles(colorScheme);
 
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient
         colors={['transparent', 'rgba(37, 139, 182, 0.08)', 'rgba(37, 139, 182, 0.18)', 'rgba(37, 139, 182, 0.3)']}
-        locations={[0, 0.3, 0.7, 1]}
+        locations={[0, 0.4, 0.8, 1]}
         style={{ flex: 1 }}
       >
         <ScrollView contentContainerStyle={styles.scrollContent}>
@@ -92,10 +113,6 @@ export default function SettingsScreen() {
               <Text style={styles.sectionTitle}>Your Information</Text>
             </View>
             <View style={styles.card}>
-              <InfoRow label="Full Name" value={fullName} />
-              <View style={styles.divider} />
-              <InfoRow label="Email" value={email} />
-              <View style={styles.divider} />
               <InfoRow label="Vox Key Updated" value={formatDate(user?.lastUpdated)} />
             </View>
           </View>
@@ -131,6 +148,19 @@ export default function SettingsScreen() {
               </Text>
               <TouchableOpacity style={styles.resetButton} onPress={handleResetPress}>
                 <Text style={styles.resetButtonText}>Reset Vox Key</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          {/* Sign Out Section */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <LogOut color={styles.sectionTitle.color} size={22} />
+              <Text style={styles.sectionTitle}>Account</Text>
+            </View>
+            <View style={styles.card}>
+              <TouchableOpacity style={styles.signOutButton} onPress={handleSignOut}>
+                <Text style={styles.signOutButtonText}>Sign Out</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -286,6 +316,17 @@ const getStyles = (colorScheme: 'light' | 'dark' | null | undefined) => {
       alignItems: 'center',
     },
     resetButtonText: {
+      fontFamily: 'Inter-Bold',
+      fontSize: 16,
+      color: '#FFFFFF',
+    },
+    signOutButton: {
+      backgroundColor: '#6B7280',
+      borderRadius: 10,
+      paddingVertical: 15,
+      alignItems: 'center',
+    },
+    signOutButtonText: {
       fontFamily: 'Inter-Bold',
       fontSize: 16,
       color: '#FFFFFF',

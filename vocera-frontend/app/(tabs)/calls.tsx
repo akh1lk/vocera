@@ -75,7 +75,7 @@ export default function CallsScreen() {
     <SafeAreaView style={styles.container}>
       <LinearGradient
         colors={['transparent', 'rgba(37, 139, 182, 0.08)', 'rgba(37, 139, 182, 0.18)', 'rgba(37, 139, 182, 0.3)']}
-        locations={[0, 0.3, 0.7, 1]}
+        locations={[0, 0.4, 0.8, 1]}
         style={styles.gradientContainer}
       >
         <View style={styles.content}>
@@ -167,7 +167,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 20,
-    paddingBottom: 100,
+    paddingBottom: 0,
   },
   header: {
     alignItems: 'center',
