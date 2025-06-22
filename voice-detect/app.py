@@ -561,21 +561,26 @@ def verify():
         # This is based on a sigmoid function where a higher distance results
         # in a higher "deepfake confidence" score. The function is tuned to meet
         # the following points based on the distance ratio (verification_dist / baseline_dist):
-        #   - Ratio 1.25x -> 10% deepfake confidence
-        #   - Ratio 3.00x -> 90% deepfake confidence
+        #   - Ratio 1.6x -> 10% deepfake confidence
+        #   - Ratio 4.5x -> 90% deepfake confidence
         if baseline_avg_euclidean_dist > 0:
             distance_ratio = avg_os_distance / baseline_avg_euclidean_dist
         else:
             # Avoid division by zero; treat as a large distance if baseline is zero
             distance_ratio = 1e9
 
-        # Parameters for the INCREASING sigmoid function: C(r) = 100 / (1 + exp(-k*(r - r0)))
-        # Solved for C(2.25)=10 and C(3.0)=90
-        k = (2 * np.log(9)) / 0.75  # Steepness of the curve (approx 5.87)
-        r0 = 2.625  # Midpoint of the curve (where deepfake confidence is 50%)
+        # Parameters for exponential function: C(r) = a * exp(b * r)
+        # Solving:
+        # 10 = a * exp(1.6b)
+        # 90 = a * exp(4.5b)
+        # Dividing equations: 9 = exp(2.9b)
+        # Therefore: b = ln(9)/2.9 ≈ 0.76
+        # And: a = 10/exp(1.6 * 0.76) ≈ 2.8
+        a = 10 / np.exp(1.6 * np.log(9) / 2.9)  # ≈ 2.8
+        b = np.log(9) / 2.9  # ≈ 0.76
 
         # Calculate the confidence that the sample is a deepfake
-        deepfake_confidence = 100 / (1 + np.exp(-k * (distance_ratio - r0)))
+        deepfake_confidence = min(100, a * np.exp(b * distance_ratio))
 
         # The final score represents confidence in AUTHENTICITY
         opensmile_score = deepfake_confidence
