@@ -52,7 +52,6 @@ db = SupabaseDatabase(supabase_client=supabase)
 OPEN_SMILE_THRESHOLD_MULTIPLIER = 1.8
 
 
-# TODO not sure if this would actually work
 def download_audio_from_url(audio_url):
     """
     Downloads an audio file from the supabase bucket URL and saves it to a temporary local file.
@@ -70,34 +69,281 @@ def download_audio_from_url(audio_url):
         return None
 
 
-# TODO are we able to send the vectors to the supabase?
+def download_multiple_files_from_urls(file_urls):
+    """
+    Downloads multiple audio files from Supabase storage URLs and saves them to temporary local files.
+
+    Args:
+        file_urls (list): List of Supabase storage URLs to download
+
+    Returns:
+        list: List of local temporary file paths, or empty list if failed
+    """
+    if not file_urls or not isinstance(file_urls, list):
+        logger.error("file_urls must be a non-empty list")
+        return []
+
+    temp_files = []
+    failed_downloads = []
+
+    try:
+        for i, url in enumerate(file_urls):
+            try:
+                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+                response = requests.get(url, stream=True)
+                response.raise_for_status()
+
+                for chunk in response.iter_content(chunk_size=8192):
+                    temp_file.write(chunk)
+                temp_file.close()
+
+                temp_files.append(temp_file.name)
+                logger.info(f"Successfully downloaded file {i+1}/{len(file_urls)}")
+
+            except requests.exceptions.RequestException as e:
+                logger.error(f"Error downloading file {i+1} from URL {url}: {e}")
+                failed_downloads.append(url)
+                # Clean up the failed temp file if it was created
+                if "temp_file" in locals() and hasattr(temp_file, "name"):
+                    try:
+                        os.remove(temp_file.name)
+                    except:
+                        pass
+
+        if failed_downloads:
+            logger.warning(
+                f"Failed to download {len(failed_downloads)} files: {failed_downloads}"
+            )
+
+        if not temp_files:
+            logger.error("No files were successfully downloaded")
+            return []
+
+        logger.info(
+            f"Successfully downloaded {len(temp_files)} out of {len(file_urls)} files"
+        )
+        return temp_files
+
+    except Exception as e:
+        logger.error(f"Error in download_multiple_files_from_urls: {e}")
+        # Clean up any successfully downloaded files in case of error
+        for temp_file_path in temp_files:
+            try:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+            except:
+                pass
+        return []
+
+
+def download_files_from_vox_key_folder(vox_key_id, expected_count=10):
+    """
+    Downloads all audio files from a specific vox_key folder in Supabase storage.
+
+    Args:
+        vox_key_id (str): The vox_key identifier (e.g., "vox_key_7")
+        expected_count (int): Expected number of files (default 10 for calibration)
+
+    Returns:
+        list: List of local temporary file paths, or empty list if failed
+    """
+    try:
+        # List files in the vox_key folder
+        files = supabase.storage.from_("vocera-audiostore").list(vox_key_id)
+
+        if not files:
+            logger.error(f"No files found in folder {vox_key_id}")
+            return []
+
+        # Filter for .wav files and sort them
+        wav_files = [f for f in files if f["name"].endswith(".wav")]
+        wav_files.sort(key=lambda x: x["name"])  # Sort by filename
+
+        if len(wav_files) != expected_count:
+            logger.warning(
+                f"Expected {expected_count} files, found {len(wav_files)} in {vox_key_id}"
+            )
+
+        # Generate signed URLs for each file
+        file_urls = []
+        for file_info in wav_files:
+            file_path = f"{vox_key_id}/{file_info['name']}"
+            signed_url = get_file_url_from_supabase_storage(
+                "vocera-audiostore", file_path
+            )
+            if signed_url:
+                file_urls.append(signed_url)
+            else:
+                logger.error(f"Failed to get signed URL for {file_path}")
+
+        if not file_urls:
+            logger.error(f"No valid URLs generated for files in {vox_key_id}")
+            return []
+
+        # Download all files
+        return download_multiple_files_from_urls(file_urls)
+
+    except Exception as e:
+        logger.error(f"Error downloading files from vox_key folder {vox_key_id}: {e}")
+        return []
+
+
+def download_file_from_supabase_storage(bucket_name, file_path):
+    """
+    Downloads a file from Supabase storage using the Supabase client.
+
+    Args:
+        bucket_name (str): Name of the Supabase storage bucket
+        file_path (str): Path to the file in the bucket (e.g., "audio/user123/sample.wav")
+
+    Returns:
+        str: Local temporary file path, or None if failed
+    """
+    try:
+        # Download file from Supabase storage
+        file_data = supabase.storage.from_(bucket_name).download(file_path)
+
+        # Save to temporary file
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        temp_file.write(file_data)
+        temp_file.close()
+
+        logger.info(f"Successfully downloaded {file_path} from bucket {bucket_name}")
+        return temp_file.name
+
+    except Exception as e:
+        logger.error(f"Error downloading file from Supabase storage: {e}")
+        return None
+
+
+def get_file_url_from_supabase_storage(bucket_name, file_path, expires_in=3600):
+    """
+    Gets a signed URL for a file in Supabase storage.
+
+    Args:
+        bucket_name (str): Name of the Supabase storage bucket
+        file_path (str): Path to the file in the bucket
+        expires_in (int): URL expiration time in seconds (default 1 hour)
+
+    Returns:
+        str: Signed URL or None if failed
+    """
+    try:
+        signed_url = supabase.storage.from_(bucket_name).create_signed_url(
+            file_path, expires_in
+        )
+        return signed_url.get("signedURL")
+
+    except Exception as e:
+        logger.error(f"Error creating signed URL: {e}")
+        return None
+
+
+def upload_file_to_supabase_storage(bucket_name, file_path, local_file_path):
+    """
+    Uploads a file to Supabase storage.
+
+    Args:
+        bucket_name (str): Name of the Supabase storage bucket
+        file_path (str): Destination path in the bucket
+        local_file_path (str): Local file to upload
+
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        with open(local_file_path, "rb") as file:
+            file_data = file.read()
+
+        result = supabase.storage.from_(bucket_name).upload(
+            file_path, file_data, file_options={"content-type": "audio/wav"}
+        )
+
+        logger.info(
+            f"Successfully uploaded {local_file_path} to {bucket_name}/{file_path}"
+        )
+        return True
+
+    except Exception as e:
+        logger.error(f"Error uploading file to Supabase storage: {e}")
+        return False
+
+
 @app.route("/calibrate", methods=["POST"])
 def calibrate():
     """
     Calibrates a user's voice profile with StandardScaler normalization.
-    Expects 10 .wav files and a vox_key_id.
+    Expects JSON with:
+    - vox_key_id: integer
+    - user_id: string
+    - audio_files: array of objects with fileName, url, size
+    - Optional: phrase_data, storage_folder
     """
-    # Check for required form fields
-    if "vox_key_id" not in request.form:
-        return jsonify({"error": "vox_key_id is required"}), 400
-
-    vox_key_id = request.form.get("vox_key_id")
-
-    # Get audio files - they should be in the 'audio_files' field
-    files = request.files.getlist("audio_files")
-
-    if len(files) != 10:
-        return jsonify({"error": "10 audio files are required for calibration"}), 400
-
-    temp_files = []
     try:
-        # Save files temporarily
-        for file in files:
-            temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
-            file.save(temp_file.name)
-            temp_files.append(temp_file.name)
+        # Parse JSON data
+        if not request.is_json:
+            return jsonify({"error": "Content-Type must be application/json"}), 400
+
+        data = request.get_json()
+        if not data:
+            return jsonify({"error": "No JSON data provided"}), 400
+
+        # Validate required fields
+        if "vox_key_id" not in data:
+            return jsonify({"error": "vox_key_id is required"}), 400
+
+        if "audio_files" not in data:
+            return jsonify({"error": "audio_files array is required"}), 400
+
+        vox_key_id = data["vox_key_id"]
+        user_id = data.get("user_id")
+        audio_files = data["audio_files"]
+
+        # Validate audio_files structure
+        if not isinstance(audio_files, list) or len(audio_files) != 10:
+            return (
+                jsonify(
+                    {"error": "audio_files must be an array of exactly 10 objects"}
+                ),
+                400,
+            )
+
+        # Extract URLs from audio_files
+        file_urls = []
+        for audio_file in audio_files:
+            if not isinstance(audio_file, dict) or "url" not in audio_file:
+                return (
+                    jsonify(
+                        {"error": "Each audio_file must be an object with 'url' field"}
+                    ),
+                    400,
+                )
+            file_urls.append(audio_file["url"])
+
+        logger.info(
+            f"Starting calibration for vox_key_id: {vox_key_id} with {len(file_urls)} files"
+        )
+
+        # Download files from URLs
+        temp_files = download_multiple_files_from_urls(file_urls)
+        if not temp_files:
+            return (
+                jsonify({"error": "Failed to download files from provided URLs"}),
+                400,
+            )
+
+        if len(temp_files) != 10:
+            return (
+                jsonify(
+                    {
+                        "error": f"Expected 10 files for calibration, got {len(temp_files)}"
+                    }
+                ),
+                400,
+            )
 
         # Extract raw features first (without normalization)
+        logger.info("Extracting features from audio files...")
         raw_feature_vectors = [extract_opensmile_features(f) for f in temp_files]
 
         # Create and fit StandardScaler on the calibration data
@@ -121,38 +367,61 @@ def calibrate():
         # Serialize scaler for storage
         serialized_scaler = serialize_scaler(scaler)
 
-        # Send the vectors directly to the existing vox_key
+        # Send the vectors to the database
+        logger.info("Saving vectors to database...")
         success = db.send_vox_vectors(vox_key_id, normalized_vectors)
-
         if not success:
             return jsonify({"error": "Failed to save vectors to database"}), 500
 
-        print(f"✅ Calibration successful for vox_key_id: {vox_key_id}")
-        print(f"   Normalized avg distance: {avg_euclidean_distance:.4f}")
-        print(
+        # Update training_audio_url as requested
+        # Use the first audio file URL as the training_audio_url
+        training_audio_url = audio_files[0]["url"]
+
+        logger.info("Updating training_audio_url...")
+        url_update_success = db.update_vox_key_training_url_by_user(
+            user_id=user_id, training_audio_url=training_audio_url
+        )
+
+        if not url_update_success:
+            logger.warning(
+                "Failed to update training_audio_url, but vectors were saved successfully"
+            )
+
+        logger.info(f"✅ Calibration successful for vox_key_id: {vox_key_id}")
+        logger.info(f"   Normalized avg distance: {avg_euclidean_distance:.4f}")
+        logger.info(
             f"   Raw avg distance would have been: {np.mean([euclidean(pair[0], pair[1]) for pair in combinations(raw_feature_vectors, 2)]):.4f}"
+        )
+        logger.info(f"   Training audio URL set to: {training_audio_url}")
+
+        return jsonify(
+            {
+                "status": "calibration successful with StandardScaler normalization",
+                "vox_key_id": vox_key_id,
+                "user_id": user_id,
+                "files_processed": len(temp_files),
+                "normalized_avg_distance": avg_euclidean_distance,
+                "training_audio_url": training_audio_url,
+                "vectors_saved": len(normalized_vectors),
+                "training_url_updated": url_update_success,
+            }
         )
 
     except Exception as e:
-        # Clean up temp files in case of error
-        for temp_file_path in temp_files:
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
+        logger.error(f"Error in calibrate endpoint: {e}")
         return jsonify({"error": str(e)}), 500
+
     finally:
         # Clean up temp files
-        for temp_file_path in temp_files:
-            if os.path.exists(temp_file_path):
-                os.remove(temp_file_path)
-
-    return jsonify(
-        {
-            "status": "calibration successful with StandardScaler normalization",
-            "vox_key_id": vox_key_id,
-            "files_received": len(files),
-            "normalized_avg_distance": avg_euclidean_distance,
-        }
-    )
+        if "temp_files" in locals():
+            for temp_file_path in temp_files:
+                try:
+                    if os.path.exists(temp_file_path):
+                        os.remove(temp_file_path)
+                except Exception as cleanup_error:
+                    logger.warning(
+                        f"Failed to cleanup temp file {temp_file_path}: {cleanup_error}"
+                    )
 
 
 # TODO: A LOT OF THIS STUFF NEEDS TO BE FIXED, BECAUSE IT'S NOT ACTUALLY INDEXING THROUGH SUPABASE

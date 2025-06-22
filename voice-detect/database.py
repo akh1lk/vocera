@@ -201,3 +201,45 @@ class SupabaseDatabase:
         except Exception as e:
             logger.error(f"Error listing users from Supabase: {e}")
             return []
+
+    def update_vox_key_training_url_by_user(self, user_id, training_audio_url):
+        """
+        Updates the training_audio_url field for the most recent active vox_key of a user.
+
+        Args:
+            user_id (str): The user ID whose vox_key to update
+            training_audio_url (str): The URL of the training audio file
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            logger.info(f"DEBUG: Updating training_audio_url for user_id: {user_id}")
+
+            # Update the most recent active vox_key for this user
+            response = (
+                self.client.table("vox_keys")
+                .update({"training_audio_url": training_audio_url})
+                .eq("user_id", user_id)
+                .eq("is_active", True)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+
+            if response.data:
+                logger.info(
+                    f"DEBUG: Successfully updated training_audio_url for user_id: {user_id}"
+                )
+                return True
+            else:
+                logger.error(
+                    f"ERROR: Failed to update training_audio_url for user_id: {user_id} - no active vox_key found"
+                )
+                return False
+
+        except Exception as e:
+            logger.error(
+                f"ERROR: Exception updating training_audio_url for user_id {user_id}: {e}"
+            )
+            return False
