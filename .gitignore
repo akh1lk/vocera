@@ -152,3 +152,8 @@ expo-env.d.ts
 
 # Turborepo
 .turbo/
+# Audio sample data
+*.wav
+*.mp3
+*.zip
+*sampledata/
