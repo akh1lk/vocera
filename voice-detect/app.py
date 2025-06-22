@@ -69,6 +69,7 @@ def convert_with_sox(input_path, output_path):
     """
     try:
         # Use SoX to convert M4A to WAV with error tolerance
+        # File extension should now match format, but keep explicit format just in case
         cmd = [
             "sox",
             "-t",
@@ -246,9 +247,9 @@ def download_multiple_files_from_urls(file_urls):
     try:
         for i, url in enumerate(file_urls):
             try:
-                # Download to a temporary file first, then detect format from content
+                # Download to a temporary file with M4A extension for SoX compatibility
                 temp_file = tempfile.NamedTemporaryFile(
-                    delete=False, suffix=".tmp", mode="wb"
+                    delete=False, suffix=".m4a", mode="wb"
                 )
                 response = requests.get(url, stream=True)
                 response.raise_for_status()
