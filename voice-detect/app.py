@@ -56,92 +56,90 @@ OPEN_SMILE_THRESHOLD_MULTIPLIER = 1.8
 
 def convert_audio_to_wav(input_path):
     """
-    Converts any audio file to WAV format using pydub with fallback strategies.
+    Converts M4A audio files to WAV format using pydub with enhanced ffmpeg support.
+    Assumes all input files are M4A format (which they are in our use case).
 
     Args:
-        input_path (str): Path to input audio file
+        input_path (str): Path to input M4A audio file
 
     Returns:
         str: Path to converted WAV file, or None if conversion failed
     """
     try:
-        # Detect format from file header
-        with open(input_path, "rb") as f:
-            header = f.read(16)
-
-        # Determine input format
-        if b"ftyp" in header and b"M4A" in header:
-            input_format = "m4a"
-        elif header.startswith(b"RIFF") and b"WAVE" in header:
-            # Already WAV format
-            return input_path
-        elif header.startswith(b"\xff\xfb") or header.startswith(b"ID3"):
-            input_format = "mp3"
-        else:
-            # Try to auto-detect
-            input_format = None
-
         # Create new temp file for WAV output
         wav_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         wav_path = wav_temp.name
         wav_temp.close()
 
-        # Try multiple conversion strategies
-        conversion_successful = False
-
-        # Strategy 1: Direct pydub conversion
+        # Strategy 1: M4A conversion with metadata handling for newer ffmpeg
         try:
-            if input_format:
-                audio = AudioSegment.from_file(input_path, format=input_format)
-            else:
-                audio = AudioSegment.from_file(input_path)
-            audio.export(wav_path, format="wav")
-            conversion_successful = True
-            logger.info(
-                f"Successfully converted audio file using direct pydub: {wav_path}"
+            audio = AudioSegment.from_file(
+                input_path,
+                format="m4a",
+                parameters=[
+                    "-ignore_unknown",  # Ignore unknown metadata boxes
+                    "-f",
+                    "mp4",  # Force mp4 container parsing
+                ],
             )
-        except Exception as e1:
-            logger.warning(f"Direct pydub conversion failed: {e1}")
-
-            # Strategy 2: Force M4A format and ignore metadata issues
-            if input_format == "m4a":
-                try:
-                    # Try with specific codec parameters that ignore problematic metadata
-                    audio = AudioSegment.from_file(input_path, format="m4a")
-                    # Convert with basic parameters
-                    audio.export(
-                        wav_path, format="wav", parameters=["-acodec", "pcm_s16le"]
-                    )
-                    conversion_successful = True
-                    logger.info(
-                        f"Successfully converted M4A using codec override: {wav_path}"
-                    )
-                except Exception as e2:
-                    logger.warning(f"M4A codec override failed: {e2}")
-
-            # Strategy 3: Try auto-detection
-            if not conversion_successful:
-                try:
-                    audio = AudioSegment.from_file(input_path)
-                    audio.export(wav_path, format="wav")
-                    conversion_successful = True
-                    logger.info(
-                        f"Successfully converted using auto-detection: {wav_path}"
-                    )
-                except Exception as e3:
-                    logger.warning(f"Auto-detection conversion failed: {e3}")
-
-        if conversion_successful:
+            # Export with standard WAV parameters
+            audio.export(
+                wav_path,
+                format="wav",
+                parameters=[
+                    "-acodec",
+                    "pcm_s16le",  # Standard WAV codec
+                    "-ar",
+                    "44100",  # Standard sample rate
+                    "-ac",
+                    "1",  # Mono audio for consistency
+                ],
+            )
+            logger.info(f"Successfully converted M4A to WAV: {wav_path}")
             return wav_path
-        else:
-            # Clean up failed temp file
-            if os.path.exists(wav_path):
-                os.remove(wav_path)
-            logger.error(f"All conversion strategies failed for {input_path}")
-            return None
+        except Exception as e1:
+            logger.warning(f"Enhanced M4A conversion failed: {e1}")
+
+        # Strategy 2: Simple M4A conversion
+        try:
+            audio = AudioSegment.from_file(input_path, format="m4a")
+            # Convert to mono and standard sample rate for consistency
+            audio = audio.set_channels(1).set_frame_rate(44100)
+            audio.export(wav_path, format="wav")
+            logger.info(f"Successfully converted M4A using simple method: {wav_path}")
+            return wav_path
+        except Exception as e2:
+            logger.warning(f"Simple M4A conversion failed: {e2}")
+
+        # Strategy 3: Force auto-detection with metadata stripping
+        try:
+            audio = AudioSegment.from_file(input_path)
+            audio = audio.set_channels(1).set_frame_rate(44100)
+            audio.export(
+                wav_path,
+                format="wav",
+                parameters=[
+                    "-acodec",
+                    "pcm_s16le",
+                    "-map_metadata",
+                    "-1",  # Strip all metadata
+                ],
+            )
+            logger.info(
+                f"Successfully converted using auto-detection with metadata stripping: {wav_path}"
+            )
+            return wav_path
+        except Exception as e3:
+            logger.warning(f"Auto-detection with metadata stripping failed: {e3}")
+
+        # Clean up failed temp file
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+        logger.error(f"All M4A conversion strategies failed for {input_path}")
+        return None
 
     except Exception as e:
-        logger.error(f"Error converting audio file {input_path}: {e}")
+        logger.error(f"Error converting M4A file {input_path}: {e}")
         return None
 
 
@@ -150,7 +148,10 @@ def download_audio_from_url(audio_url):
     Downloads an audio file from the supabase bucket URL and saves it to a temporary local file.
     """
     try:
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".m4a", mode="wb")
+        # Use generic suffix since we handle multiple audio formats
+        temp_file = tempfile.NamedTemporaryFile(
+            delete=False, suffix=".audio", mode="wb"
+        )
         response = requests.get(audio_url, stream=True)
         response.raise_for_status()
         for chunk in response.iter_content(chunk_size=8192):
@@ -201,48 +202,22 @@ def download_multiple_files_from_urls(file_urls):
                     f"Successfully downloaded file {i+1}/{len(file_urls)}, {bytes_written} bytes"
                 )
 
-                # Detect actual format from file content
-                with open(temp_file.name, "rb") as f:
-                    header = f.read(16)
+                # Assume all files are M4A format and convert them
+                logger.info(f"File {i+1} - treating as M4A format, converting to WAV")
 
-                if b"ftyp" in header and b"M4A" in header:
-                    detected_format = "m4a"
-                    needs_conversion = True
-                elif header.startswith(b"RIFF") and b"WAVE" in header:
-                    detected_format = "wav"
-                    needs_conversion = False
-                elif header.startswith(b"\xff\xfb") or header.startswith(b"ID3"):
-                    detected_format = "mp3"
-                    needs_conversion = True
-                else:
-                    # Unknown format, try conversion anyway
-                    detected_format = "unknown"
-                    needs_conversion = True
-
-                logger.info(
-                    f"File {i+1} detected format: {detected_format}, needs_conversion: {needs_conversion}"
-                )
-
-                if needs_conversion:
-                    # Convert to WAV format
-                    wav_path = convert_audio_to_wav(temp_file.name)
-                    if wav_path:
-                        # Clean up original file and use converted WAV
-                        os.remove(temp_file.name)
-                        temp_files.append(wav_path)
-                        logger.info(f"File {i+1} converted to WAV successfully")
-                    else:
-                        logger.error(f"Failed to convert file {i+1} to WAV")
-                        # Clean up the failed file
-                        if os.path.exists(temp_file.name):
-                            os.remove(temp_file.name)
-                        failed_downloads.append(url)
-                else:
-                    # Already WAV, rename with proper extension
-                    wav_path = temp_file.name + ".wav"
-                    os.rename(temp_file.name, wav_path)
+                # Convert M4A to WAV format
+                wav_path = convert_audio_to_wav(temp_file.name)
+                if wav_path:
+                    # Clean up original M4A file and use converted WAV
+                    os.remove(temp_file.name)
                     temp_files.append(wav_path)
-                    logger.info(f"File {i+1} is already WAV format, using directly")
+                    logger.info(f"File {i+1} converted from M4A to WAV successfully")
+                else:
+                    logger.error(f"Failed to convert file {i+1} from M4A to WAV")
+                    # Clean up the failed file
+                    if os.path.exists(temp_file.name):
+                        os.remove(temp_file.name)
+                    failed_downloads.append(url)
 
             except requests.exceptions.RequestException as e:
                 logger.error(f"Error downloading file {i+1} from URL {url}: {e}")
