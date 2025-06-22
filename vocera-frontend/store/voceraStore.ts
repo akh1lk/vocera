@@ -15,6 +15,9 @@ export interface Call {
 
 export interface User {
   id: string;
+  email: string;
+  firstName: string | null;
+  lastName: string | null;
   hasVoxKey: boolean;
   lastUpdated: string;
   autoResetAfterVerification: boolean;
@@ -36,6 +39,7 @@ interface VoceraStore {
   
   // Actions
   setUser: (user: User) => void;
+  updateUser: (updates: Partial<User>) => void;
   setAuthToken: (token: string | null) => void;
   addSavedCall: (call: Call) => void;
   removeSavedCall: (callId: string) => void;
@@ -86,6 +90,11 @@ export const useVoceraStore = create<VoceraStore>()(
 
       // Actions
       setUser: (user: User) => set({ user }),
+      
+      updateUser: (updates: Partial<User>) => 
+        set((state) => ({
+          user: state.user ? { ...state.user, ...updates } : null
+        })),
       
       setAuthToken: (token: string | null) => set({ authToken: token }),
       

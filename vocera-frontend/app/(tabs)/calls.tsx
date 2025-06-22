@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,60 +11,32 @@ import { VoxButton } from '../../components/VoxButton';
 import { useVoceraStore } from '../../store/voceraStore';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Phone, CheckCircle2, XCircle } from 'lucide-react-native';
+import { supabaseService } from '../../services/supabaseService';
 
 export default function CallsScreen() {
-  // Replace store implementation to use mock data
-  const { removeSavedCall } = useVoceraStore();
-  const savedCalls = [
-    {
-      id: '1',
-      name: 'John Smith',
-      timestamp: new Date().toISOString(),
-      audioUri: 'mock://audio1.wav',
-      transcript: 'My voice is my password, verify me.',
-      confidence: 0.92,
-      verified: true,
-    },
-    {
-      id: '2',
-      name: 'Sarah Johnson',
-      timestamp: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
-      audioUri: 'mock://audio2.wav',
-      transcript: 'Voice verification test sample recording.',
-      confidence: 0.88,
-      verified: true,
-    },
-    {
-      id: '3',
-      name: 'Michael Chen',
-      timestamp: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
-      audioUri: 'mock://audio3.wav',
-      transcript: 'Failed verification attempt recording.',
-      confidence: 0.45,
-      verified: false,
+  const { user, savedCalls } = useVoceraStore();
+  const [results, setResults] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadResults();
+  }, [user]);
+
+  const loadResults = async () => {
+    if (!user) return;
+    
+    try {
+      setLoading(true);
+      const userResults = await supabaseService.getUserResults(user.id);
+      setResults(userResults);
+    } catch (error) {
+      console.error('Error loading results:', error);
+      Alert.alert('Error', 'Failed to load verification history.');
+    } finally {
+      setLoading(false);
     }
-  ];
-
-  const handleDeleteCall = (callId: string) => {
-    removeSavedCall(callId);
   };
 
-  const handleClearAll = () => {
-    Alert.alert(
-      'Clear All Calls',
-      'Are you sure you want to delete all saved calls? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Clear All', 
-          style: 'destructive',
-          onPress: () => {
-            savedCalls.forEach(call => removeSavedCall(call.id));
-          }
-        },
-      ]
-    );
-  };
 
   const formatTimestamp = (timestamp: string): string => {
     const date = new Date(timestamp);
@@ -80,70 +52,65 @@ export default function CallsScreen() {
       >
         <View style={styles.content}>
           <View style={styles.header}>
-            <Text style={styles.title}>Saved Calls</Text>
+            <Text style={styles.title}>Verification History</Text>
             <Text style={styles.subtitle}>
-              {savedCalls.length} {savedCalls.length === 1 ? 'call' : 'calls'}
+              {results.length} {results.length === 1 ? 'result' : 'results'}
             </Text>
           </View>
-
-          {savedCalls.length > 0 && (
-            <View style={styles.clearButtonContainer}>
-              <VoxButton
-                title="Clear All"
-                onPress={handleClearAll}
-                variant="danger"
-                size="small"
-              />
-            </View>
-          )}
 
           <ScrollView 
             style={styles.scrollView}
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            {savedCalls.length === 0 ? (
+            {loading ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyTitle}>Loading...</Text>
+              </View>
+            ) : results.length === 0 ? (
               <View style={styles.emptyState}>
                 <Phone size={64} color="#258bb6" style={styles.emptyIcon} />
-                <Text style={styles.emptyTitle}>No Saved Calls</Text>
+                <Text style={styles.emptyTitle}>No Verification History</Text>
                 <Text style={styles.emptySubtitle}>
-                  Verified calls will appear here for review and playback
+                  Voice verification results will appear here
                 </Text>
               </View>
             ) : (
-              savedCalls.map((call) => (
-                <View key={call.id} style={styles.callCard}>
+              results.map((result) => (
+                <View key={result.id} style={styles.callCard}>
                   <View style={styles.callHeader}>
                     <View style={styles.callInfo}>
-                      <Text style={styles.callerName}>{call.name}</Text>
+                      <Text style={styles.callerName}>
+                        {result.target || 'Unknown Caller'}
+                      </Text>
                       <Text style={styles.timestamp}>
-                        {formatTimestamp(call.timestamp)}
+                        {formatTimestamp(result.created_at)}
                       </Text>
                     </View>
                     <View style={styles.verificationBadge}>
                       <View style={styles.verificationRow}>
-                        {call.verified ? (
+                        {result.prediction ? (
                           <CheckCircle2 size={16} color="#34C759" style={{ marginRight: 4 }} />
                         ) : (
                           <XCircle size={16} color="#FF3B30" style={{ marginRight: 4 }} />
                         )}
                         <Text style={[
                           styles.verificationText,
-                          { color: call.verified ? '#34C759' : '#FF3B30' }
+                          { color: result.prediction ? '#34C759' : '#FF3B30' }
                         ]}>
-                          {call.verified ? 'Verified' : 'Failed'}
+                          {result.prediction ? 'Verified' : 'Failed'}
                         </Text>
                       </View>
                       <Text style={styles.confidenceText}>
-                        {Math.round(call.confidence * 100)}%
+                        {Math.round(result.confidence * 100)}%
                       </Text>
                     </View>
                   </View>
 
-                  {call.transcript && (
+                  {result.transcript && (
                     <View style={styles.transcriptContainer}>
                       <Text style={styles.transcriptLabel}>Transcript:</Text>
-                      <Text style={styles.transcriptText}>{call.transcript}</Text>
+                      <Text style={styles.transcriptText}>{result.transcript}</Text>
                     </View>
                   )}
                 </View>

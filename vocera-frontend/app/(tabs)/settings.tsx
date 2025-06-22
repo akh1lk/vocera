@@ -16,7 +16,7 @@ import { useVoceraStore } from '../../store/voceraStore';
 import { router } from 'expo-router';
 import { User, Shield, KeyRound, ChevronRight, X, LogOut } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { supabase } from '../../lib/supabase';
+import { supabaseService } from '../../services/supabaseService';
 
 export default function SettingsScreen() {
   const { user, resetVoxKey } = useVoceraStore();
@@ -84,8 +84,9 @@ export default function SettingsScreen() {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
-            const { error } = await supabase.auth.signOut();
-            if (error) {
+            try {
+              await supabaseService.signOut();
+            } catch (error) {
               Alert.alert('Error', 'Failed to sign out. Please try again.');
             }
           },

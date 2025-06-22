@@ -11,8 +11,9 @@ import {
   useColorScheme
 } from 'react-native'
 import { supabase } from '../lib/supabase'
+import { supabaseService } from '../services/supabaseService'
 import { LinearGradient } from 'expo-linear-gradient'
-import { Lock, Mail } from 'lucide-react-native'
+import { Lock, Mail, User } from 'lucide-react-native'
 
 AppState.addEventListener('change', (state) => {
   if (state === 'active') {
@@ -25,6 +26,8 @@ AppState.addEventListener('change', (state) => {
 export default function Auth() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [firstName, setFirstName] = useState('')
+  const [lastName, setLastName] = useState('')
   const [loading, setLoading] = useState(false)
   const [isSignUp, setIsSignUp] = useState(true)
   const colorScheme = useColorScheme()
@@ -41,17 +44,54 @@ export default function Auth() {
   }
 
   async function signUpWithEmail() {
-    setLoading(true)
-    const {
-      data: { session },
-      error,
-    } = await supabase.auth.signUp({
-      email: email,
-      password: password,
-    })
+    // Validate required fields
+    if (!firstName.trim() || !lastName.trim()) {
+      Alert.alert('Error', 'First name and last name are required')
+      return
+    }
 
-    if (error) Alert.alert(error.message)
-    if (!session) Alert.alert('Please check your inbox for email verification!')
+    setLoading(true)
+    try {
+      const {
+        data: { user },
+        error,
+      } = await supabase.auth.signUp({
+        email: email,
+        password: password,
+      })
+
+      if (error) {
+        Alert.alert('Signup Error', error.message)
+        setLoading(false)
+        return
+      }
+
+      if (user) {
+        // Create user profile in database
+        try {
+          console.log('Creating profile with data:', {
+            userId: user.id,
+            first_name: firstName.trim(),
+            last_name: lastName.trim(),
+            email: user.email
+          })
+          
+          await supabaseService.createUserProfile(user, {
+            first_name: firstName.trim(),
+            last_name: lastName.trim(),
+          })
+          Alert.alert('Success', 'Account created successfully!')
+        } catch (profileError) {
+          console.error('Error creating user profile:', profileError)
+          Alert.alert('Error', 'Failed to create user profile. Please try again.')
+        }
+      } else {
+        Alert.alert('Please check your inbox for email verification!')
+      }
+    } catch (error) {
+      console.error('Signup error:', error)
+      Alert.alert('Error', 'Failed to create account. Please try again.')
+    }
     setLoading(false)
   }
 
@@ -70,6 +110,44 @@ export default function Auth() {
       {/* Auth Form */}
       <View style={styles.formContainer}>
         <View style={styles.card}>
+          {/* Name Inputs - Only show for signup */}
+          {isSignUp && (
+            <>
+              <View style={styles.inputContainer}>
+                <View style={styles.inputHeader}>
+                  <User color="#666666" size={20} />
+                  <Text style={styles.inputLabel}>First Name *</Text>
+                </View>
+                <TextInput
+                  style={styles.textInput}
+                  onChangeText={setFirstName}
+                  value={firstName}
+                  placeholder="First name"
+                  placeholderTextColor="#999"
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                />
+              </View>
+
+
+              <View style={styles.inputContainer}>
+                <View style={styles.inputHeader}>
+                  <User color="#666666" size={20} />
+                  <Text style={styles.inputLabel}>Last Name *</Text>
+                </View>
+                <TextInput
+                  style={styles.textInput}
+                  onChangeText={setLastName}
+                  value={lastName}
+                  placeholder="Last name"
+                  placeholderTextColor="#999"
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                />
+              </View>
+            </>
+          )}
+
           {/* Email Input */}
           <View style={styles.inputContainer}>
             <View style={styles.inputHeader}>
@@ -120,7 +198,12 @@ export default function Auth() {
           {/* Toggle Sign Up/Sign In */}
           <TouchableOpacity 
             style={styles.toggleButton}
-            onPress={() => setIsSignUp(!isSignUp)}
+            onPress={() => {
+              setIsSignUp(!isSignUp)
+              // Clear name fields when switching
+              setFirstName('')
+              setLastName('')
+            }}
           >
             <Text style={styles.toggleButtonText}>
               {isSignUp 

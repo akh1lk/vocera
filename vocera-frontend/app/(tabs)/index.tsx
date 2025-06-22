@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -33,9 +33,15 @@ import { TranscriptView } from '../../components/TranscriptView';
 import { Recorder } from '../../components/Recorder';
 import { useVoceraStore } from '../../store/voceraStore';
 import { voceraAPI } from '../../services/api';
+import { supabaseService } from '../../services/supabaseService';
+import { openaiService } from '../../services/openaiService';
+import { deepfakeService } from '../../services/deepfakeService';
+import { audioUtils } from '../../services/audioUtils';
 import { RecordingResult } from '../../hooks/useAudioRecorder';
+import { router } from 'expo-router';
+import { useAudioRecorder, AudioModule, RecordingPresets } from 'expo-audio';
 
-type VerificationStep = 'initial' | 'name-entry' | 'ready' | 'recording' | 'processing' | 'result';
+type VerificationStep = 'initial' | 'name-entry' | 'ready' | 'recording' | 'waiting-for-caller' | 'caller-speaking' | 'processing' | 'result';
 
 // Wave Animation Component
 const WaveAnimation = ({ isActive }: { isActive: boolean }) => {
@@ -99,6 +105,17 @@ export default function HomeScreen() {
   const [liveTranscript, setLiveTranscript] = useState('');
   const [nameSubmitted, setNameSubmitted] = useState(false);
 
+  // New recording flow state
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
+  const [callerPhraseTime, setCallerPhraseTime] = useState<number | null>(null);
+  const [countdown, setCountdown] = useState(0);
+  const [fullAudioUri, setFullAudioUri] = useState<string | null>(null);
+
+  // Audio recorder
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   // Animation values
   const logoTranslateY = useSharedValue(0);
   const logoScale = useSharedValue(1);
@@ -131,6 +148,34 @@ export default function HomeScreen() {
     setCurrentTranscript,
     addSavedCall
   } = useVoceraStore();
+
+  // Track if vox key setup alert was shown
+  const [voxKeyAlertShown, setVoxKeyAlertShown] = useState(false);
+
+  // Redirect to record if user doesn't have vox key
+  useEffect(() => {
+    if (user && !user.hasVoxKey && !voxKeyAlertShown) {
+      setVoxKeyAlertShown(true);
+      Alert.alert(
+        'Set Up Your Vox Key',
+        'You need to record your voice samples first to use voice verification.',
+        [
+          {
+            text: 'Set Up Now',
+            onPress: () => router.push('/record'),
+          },
+          {
+            text: 'Later',
+            style: 'cancel',
+            onPress: () => {
+              // Allow showing alert again next time they visit
+              setVoxKeyAlertShown(false);
+            }
+          }
+        ]
+      );
+    }
+  }, [user, voxKeyAlertShown]);
 
   // Entrance animations on mount
   useEffect(() => {
@@ -399,8 +444,17 @@ export default function HomeScreen() {
     if (!user?.hasVoxKey) {
       Alert.alert(
         'No Vox Key',
-        'You need to set up your Vox Key first. Go to Settings to create one.',
-        [{ text: 'OK' }]
+        'You need to set up your Vox Key first.',
+        [
+          { 
+            text: 'Set Up Now', 
+            onPress: () => router.push('/record')
+          },
+          { 
+            text: 'Cancel', 
+            style: 'cancel'
+          }
+        ]
       );
       return;
     }
@@ -421,23 +475,159 @@ export default function HomeScreen() {
     }
 
     setNameError('');
-    console.log('Name stored:', trimmedName);
-    
-    // Slower fade out for name input
-    nameInputOpacity.value = withTiming(0, { 
-      duration: 500,  // Increased from 300
-      easing: Easing.in(Easing.quad)
-    });
-    
-    setTimeout(() => {
-      instructionsOpacity.value = withSpring(1, {
-        damping: 20,
-        stiffness: 100
-      });
-    }, 400);  // Increased delay to match slower fade
-
-    setNameSubmitted(true);
+    startRecordingFlow();
   };
+
+  const startRecordingFlow = async () => {
+    // Start recording immediately after name is entered
+    try {
+      await audioRecorder.prepareToRecordAsync({
+        ...RecordingPresets.HIGH_QUALITY,
+        isMeteringEnabled: true,
+      });
+      
+      audioRecorder.record();
+      setIsRecording(true);
+      setRecordingStartTime(Date.now());
+      setCurrentStep('recording');
+      
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+      Alert.alert('Error', 'Could not start recording.');
+    }
+  };
+
+  const handleEnterPressed = () => {
+    if (!isRecording) return;
+    
+    // Mark the timestamp when caller should start speaking
+    const now = Date.now();
+    setCallerPhraseTime(now);
+    setCurrentStep('waiting-for-caller');
+    
+    // Show countdown and caller instruction
+    setCountdown(8);
+    
+    // Start countdown timer
+    const countdownInterval = setInterval(() => {
+      setCountdown(prev => {
+        if (prev <= 1) {
+          clearInterval(countdownInterval);
+          handleStopRecording();
+          return 0;
+        }
+        if (prev === 6) {
+          // After 2 seconds, show "Recording Caller" phase
+          setCurrentStep('caller-speaking');
+        }
+        return prev - 1;
+      });
+    }, 1000);
+  };
+
+  const handleStopRecording = async () => {
+    try {
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
+      
+      if (uri) {
+        setFullAudioUri(uri);
+        setIsRecording(false);
+        setCurrentStep('processing');
+        await processRecording(uri);
+      }
+    } catch (error) {
+      console.error('Failed to stop recording:', error);
+      Alert.alert('Error', 'Could not stop recording.');
+      resetToInitial();
+    }
+  };
+
+  const processRecording = async (audioUri: string) => {
+    try {
+      // 1. Get full transcript from OpenAI Whisper
+      const transcriptPromise = openaiService.transcribeAudio(audioUri);
+
+      // 2. Segment audio from caller phrase timestamp
+      let segmentedAudio = null;
+      if (callerPhraseTime && recordingStartTime) {
+        const segmentStartTime = (callerPhraseTime - recordingStartTime) / 1000; // Convert to seconds
+        segmentedAudio = await audioUtils.segmentAudio(audioUri, segmentStartTime);
+      }
+
+      // 3. Find target user by name
+      const targetUser = await supabaseService.findUserByName(callerName);
+      if (!targetUser) {
+        Alert.alert('Error', 'Could not find user with that name.');
+        resetToInitial();
+        return;
+      }
+
+      // 4. Run deepfake detection on segmented audio
+      let deepfakeResult = null;
+      if (segmentedAudio) {
+        deepfakeResult = await deepfakeService.detectDeepfake(segmentedAudio.uri, targetUser.id);
+      }
+
+      // 5. Wait for transcript
+      const transcript = await transcriptPromise;
+
+      // 6. Combine results
+      const verificationResult = {
+        match: deepfakeResult ? !deepfakeResult.prediction : false, // Invert: true prediction = deepfake = not authentic
+        confidence: deepfakeResult?.confidence || 0,
+        transcript: transcript || 'Transcription failed',
+        isDeepfake: deepfakeResult?.prediction || false,
+      };
+
+      setVerificationResult(verificationResult);
+      setCurrentTranscript(transcript || '');
+      setCurrentStep('result');
+
+      // 7. Save result to Supabase
+      if (user?.id && deepfakeResult) {
+        try {
+          await supabaseService.createResult({
+            prediction: !deepfakeResult.prediction, // Invert for "match" field
+            confidence: deepfakeResult.confidence,
+            transcript: transcript || '',
+            target: targetUser.id,
+            saved_by: user.id,
+          });
+        } catch (supabaseError) {
+          console.error('Error saving to Supabase:', supabaseError);
+        }
+      }
+
+      // 8. Cleanup temporary files
+      if (segmentedAudio) {
+        await audioUtils.cleanupTempFiles();
+      }
+
+    } catch (error) {
+      console.error('Processing error:', error);
+      Alert.alert('Error', 'Failed to process recording. Please try again.');
+      resetToInitial();
+    }
+  };
+
+  const resetToInitial = () => {
+    setIsRecording(false);
+    setRecordingStartTime(null);
+    setCallerPhraseTime(null);
+    setCountdown(0);
+    setFullAudioUri(null);
+    setCurrentStep('initial');
+    setCallerName('');
+    setVerificationResult(null);
+    setCurrentTranscript('');
+    
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+  };
+
 
   const handleEditName = () => {
     instructionsOpacity.value = withTiming(0, { 
@@ -478,7 +668,23 @@ export default function HomeScreen() {
       setCurrentTranscript(response.transcript);
       setCurrentStep('result');
 
-      // Save call if verified
+      // Save verification result to Supabase
+      if (user?.id) {
+        try {
+          await supabaseService.createResult({
+            prediction: response.match,
+            confidence: response.confidence,
+            transcript: response.transcript,
+            target: callerName,
+            saved_by: user.id,
+          });
+        } catch (supabaseError) {
+          console.error('Error saving to Supabase:', supabaseError);
+          // Don't show error to user, just log it
+        }
+      }
+
+      // Keep the old local storage for backwards compatibility
       if (response.match) {
         addSavedCall({
           id: Date.now().toString(),
@@ -557,7 +763,7 @@ export default function HomeScreen() {
               <>
                 {/* Circular Logo Design - Animated entrance */}
                 <Animated.View style={[styles.logoContainer, animatedLogoStyle]}>
-                  <TouchableOpacity onPress={handleLogoPress} activeOpacity={0.8}>
+                  <TouchableOpacity onPress={handleStartVerification} activeOpacity={0.8}>
                     <View style={styles.circleStack}>
                       {/* Outer Circle */}
                       <Animated.View style={[styles.outerCircle, styles.absoluteCircle, animatedOuterStyle]} />
@@ -576,6 +782,43 @@ export default function HomeScreen() {
                   </TouchableOpacity>
                 </Animated.View>
               </>
+            )}
+
+            {/* Recording Flow */}
+            {currentStep === 'recording' && (
+              <View style={styles.recordingFlow}>
+                <Text style={styles.recordingStatus}>Recording Started</Text>
+                <Text style={styles.recordingInstruction}>
+                  Tell {callerName || 'the caller'} to say their Vox Key, then press Enter
+                </Text>
+                <TouchableOpacity 
+                  style={styles.enterButton} 
+                  onPress={handleEnterPressed}
+                >
+                  <Text style={styles.enterButtonText}>ENTER</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {(currentStep === 'waiting-for-caller' || currentStep === 'caller-speaking') && (
+              <View style={styles.recordingFlow}>
+                <Text style={styles.recordingStatus}>
+                  Tell {callerName || 'the caller'} to say their Vox Key
+                </Text>
+                {currentStep === 'caller-speaking' && (
+                  <Text style={styles.callerRecordingText}>Recording Caller</Text>
+                )}
+                <Text style={styles.countdown}>{countdown}</Text>
+              </View>
+            )}
+
+            {currentStep === 'processing' && (
+              <View style={styles.processingContainer}>
+                <Text style={styles.processingText}>Processing...</Text>
+                <Text style={styles.processingSubtext}>
+                  Analyzing audio and checking authenticity
+                </Text>
+              </View>
             )}
 
             {/* Simple Name Input - appears right below the V button after transition */}
@@ -614,30 +857,35 @@ export default function HomeScreen() {
             </View>
           </Animated.View>
 
-            {/* Other steps */}
+            {/* Name Entry Step */}
             {currentStep === 'name-entry' && (
-              <View>
-                <NameInput
+              <View style={styles.nameEntryContainer}>
+                <Text style={styles.nameEntryTitle}>Who is calling?</Text>
+                <TextInput
+                  style={styles.nameInput}
                   value={callerName}
                   onChangeText={setCallerName}
-                  error={nameError}
+                  placeholder="Enter caller's name"
+                  placeholderTextColor="#999"
                   autoFocus
-                  onSubmit={handleNameSubmit}
+                  autoCapitalize="words"
+                  returnKeyType="done"
+                  onSubmitEditing={handleNameSubmit}
                 />
+                {nameError ? <Text style={styles.nameError}>{nameError}</Text> : null}
                 <View style={styles.buttonRow}>
-                  <VoxButton
-                    title="Back"
+                  <TouchableOpacity 
+                    style={styles.backButton} 
                     onPress={() => setCurrentStep('initial')}
-                    variant="secondary"
-                    size="medium"
-                    style={styles.backButton}
-                  />
-                  <VoxButton
-                    title="Continue"
+                  >
+                    <Text style={styles.backButtonText}>Back</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={styles.continueButton} 
                     onPress={handleNameSubmit}
-                    size="medium"
-                    style={styles.continueButton}
-                  />
+                  >
+                    <Text style={styles.continueButtonText}>Start Recording</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             )}
@@ -690,30 +938,28 @@ export default function HomeScreen() {
                     {verificationResult.match ? '✅' : '❌'}
                   </Text>
                   <Text style={styles.resultTitle}>
-                    {verificationResult.match ? 'Verified' : 'Not Verified'}
+                    {verificationResult.match ? 'Authentic' : (verificationResult.isDeepfake ? 'Deepfake Detected' : 'Not Verified')}
                   </Text>
                   <Text style={styles.resultDetails}>
                     Confidence: {Math.round(verificationResult.confidence * 100)}%
                   </Text>
                   <Text style={styles.callerName}>{callerName}</Text>
+                  
+                  {currentTranscript && (
+                    <View style={styles.transcriptContainer}>
+                      <Text style={styles.transcriptLabel}>Transcript:</Text>
+                      <Text style={styles.transcriptText}>{currentTranscript}</Text>
+                    </View>
+                  )}
                 </View>
 
                 <View style={styles.resultButtons}>
-                  {verificationResult.match && (
-                    <VoxButton
-                      title="Save Call"
-                      onPress={handleSaveCall}
-                      size="medium"
-                      style={styles.saveButton}
-                    />
-                  )}
-                  <VoxButton
-                    title="Verify Another"
-                    onPress={handleStartOver}
-                    variant="secondary"
-                    size="medium"
-                    style={styles.anotherButton}
-                  />
+                  <TouchableOpacity 
+                    style={styles.verifyAnotherButton} 
+                    onPress={resetToInitial}
+                  >
+                    <Text style={styles.verifyAnotherButtonText}>Verify Another</Text>
+                  </TouchableOpacity>
                 </View>
               </View>
             )}
@@ -981,5 +1227,176 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 28,
     marginBottom: 16,
+  },
+  // New recording flow styles
+  nameEntryContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  nameEntryTitle: {
+    fontFamily: 'GeorgiaPro-CondBlack',
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#333333',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  nameInput: {
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    fontSize: 18,
+    color: '#333',
+    borderWidth: 1,
+    borderColor: 'rgba(37, 139, 182, 0.3)',
+    minWidth: 280,
+    textAlign: 'center',
+    fontFamily: 'Inter-Regular',
+    marginBottom: 10,
+  },
+  nameError: {
+    color: '#FF3B30',
+    fontSize: 14,
+    marginBottom: 20,
+    textAlign: 'center',
+    fontFamily: 'Inter-Regular',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: 15,
+    marginTop: 20,
+  },
+  backButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(37, 139, 182, 0.3)',
+  },
+  backButtonText: {
+    color: '#258bb6',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
+  },
+  continueButton: {
+    backgroundColor: '#258bb6',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+  },
+  continueButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
+  },
+  recordingFlow: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  recordingStatus: {
+    fontFamily: 'GeorgiaPro-CondBlack',
+    fontSize: 24,
+    fontWeight: '700',
+    color: '#333333',
+    marginBottom: 15,
+    textAlign: 'center',
+  },
+  recordingInstruction: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: '#666666',
+    textAlign: 'center',
+    marginBottom: 20,
+    lineHeight: 24,
+  },
+  enterButton: {
+    backgroundColor: '#258bb6',
+    borderRadius: 50,
+    paddingVertical: 15,
+    paddingHorizontal: 40,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 6,
+    elevation: 6,
+  },
+  enterButtonText: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    fontFamily: 'Inter-Bold',
+  },
+  callerRecordingText: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 18,
+    color: '#FF3B30',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  countdown: {
+    fontFamily: 'GeorgiaPro-CondBlack',
+    fontSize: 48,
+    fontWeight: '700',
+    color: '#FF3B30',
+    textAlign: 'center',
+  },
+  processingContainer: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  processingText: {
+    fontFamily: 'GeorgiaPro-CondBlack',
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#258bb6',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  processingSubtext: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 16,
+    color: '#666666',
+    textAlign: 'center',
+    lineHeight: 24,
+  },
+  transcriptContainer: {
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 12,
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  transcriptLabel: {
+    fontFamily: 'Inter-SemiBold',
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666666',
+    marginBottom: 4,
+    textTransform: 'uppercase',
+  },
+  transcriptText: {
+    fontFamily: 'Inter-Regular',
+    fontSize: 14,
+    color: '#333333',
+    lineHeight: 20,
+  },
+  verifyAnotherButton: {
+    backgroundColor: '#258bb6',
+    borderRadius: 12,
+    paddingVertical: 15,
+    paddingHorizontal: 30,
+    alignItems: 'center',
+  },
+  verifyAnotherButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
   },
 });
