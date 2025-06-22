@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -6,339 +6,350 @@ import {
   ScrollView,
   SafeAreaView,
   Alert,
-  Switch,
   Linking,
+  TouchableOpacity,
+  useColorScheme,
+  Modal,
+  ActivityIndicator,
 } from 'react-native';
-import { VoxButton } from '../../components/VoxButton';
 import { useVoceraStore } from '../../store/voceraStore';
 import { router } from 'expo-router';
+import { User, Shield, KeyRound, ChevronRight, X } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 export default function SettingsScreen() {
-  const { user, setUser, resetVoxKey, clearStore } = useVoceraStore();
-  const [autoReset, setAutoReset] = useState(user?.autoResetAfterVerification ?? false);
+  const { user, resetVoxKey } = useVoceraStore();
+  const colorScheme = useColorScheme();
+  const [microphonePermission, setMicrophonePermission] = useState('Not Determined');
+  const [isModalVisible, setModalVisible] = useState(false);
+  const [isResetting, setIsResetting] = useState(false);
 
-  const handleResetVoxKey = () => {
-    Alert.alert(
-      'Reset Vox Key',
-      'This will delete your current voice profile and require you to record 10 new samples. Are you sure?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Reset', 
-          style: 'destructive',
-          onPress: () => {
-            resetVoxKey();
-            // Navigate to wizard
-            router.push('/voxkey-wizard');
-          }
-        },
-      ]
-    );
+  const [fullName, setFullName] = useState('John Doe');
+  const [email, setEmail] = useState('john.doe@example.com');
+
+  const handleCheckMicrophonePermission = async () => {
+    // In a real app, you'd use a library like expo-av or react-native-permissions
+    // For this example, we'll simulate checking and show an alert.
+    setMicrophonePermission('Granted'); // Simulate granted status
+    Alert.alert('Microphone Access', 'Microphone permission is currently granted.');
   };
 
-  const handleToggleAutoReset = (value: boolean) => {
-    setAutoReset(value);
-    if (user) {
-      setUser({
-        ...user,
-        autoResetAfterVerification: value,
-      });
+  const handleOpenSettings = () => {
+    Linking.openSettings();
+  };
+
+  const handleResetPress = () => {
+    setModalVisible(true);
+  };
+
+  const handleConfirmReset = async () => {
+    setIsResetting(true);
+    try {
+      // Simulate API call
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
+      await resetVoxKey();
+      
+      setModalVisible(false);
+      setIsResetting(false);
+      
+      router.replace('/(tabs)');
+      setTimeout(() => router.push('/voxkey-wizard'), 100);
+
+    } catch (error) {
+      console.error("Error resetting Vox Key:", error);
+      setIsResetting(false);
+      Alert.alert("Error", "Failed to reset Vox Key. Please try again.");
     }
-  };
-
-  const handleOpenMicrophoneSettings = () => {
-    Alert.alert(
-      'Microphone Settings',
-      'Please go to your device settings to manage microphone permissions for Vocera.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Open Settings', 
-          onPress: () => Linking.openSettings()
-        },
-      ]
-    );
-  };
-
-  const handleClearAllData = () => {
-    Alert.alert(
-      'Clear All Data',
-      'This will delete all your data including Vox Key, saved calls, and settings. This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { 
-          text: 'Clear All', 
-          style: 'destructive',
-          onPress: () => {
-            clearStore();
-            Alert.alert('Success', 'All data has been cleared.');
-          }
-        },
-      ]
-    );
   };
 
   const formatDate = (dateString?: string): string => {
     if (!dateString) return 'Never';
     const date = new Date(dateString);
-    return date.toLocaleDateString() + ' at ' + date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
   };
+
+  const styles = getStyles(colorScheme);
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Settings</Text>
-        <Text style={styles.subtitle}>Manage your Vox Key and preferences</Text>
-      </View>
-
-      <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+      <LinearGradient
+        colors={['transparent', 'rgba(37, 139, 182, 0.08)', 'rgba(37, 139, 182, 0.18)', 'rgba(37, 139, 182, 0.3)']}
+        locations={[0, 0.3, 0.7, 1]}
+        style={{ flex: 1 }}
       >
-        {/* Vox Key Status */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Vox Key Status</Text>
-          <View style={styles.statusCard}>
-            <View style={styles.statusRow}>
-              <Text style={styles.statusLabel}>Status:</Text>
-              <Text style={[
-                styles.statusValue,
-                { color: user?.hasVoxKey ? '#34C759' : '#FF3B30' }
-              ]}>
-                {user?.hasVoxKey ? '✅ Active' : '❌ Not Set Up'}
-              </Text>
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <Text style={styles.headerTitle}>Settings</Text>
+
+          {/* User Info Section */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <User color={styles.sectionTitle.color} size={22} />
+              <Text style={styles.sectionTitle}>Your Information</Text>
             </View>
-            <View style={styles.statusRow}>
-              <Text style={styles.statusLabel}>Last Updated:</Text>
-              <Text style={styles.statusValue}>
-                {formatDate(user?.lastUpdated)}
-              </Text>
+            <View style={styles.card}>
+              <InfoRow label="Full Name" value={fullName} />
+              <View style={styles.divider} />
+              <InfoRow label="Email" value={email} />
+              <View style={styles.divider} />
+              <InfoRow label="Vox Key Updated" value={formatDate(user?.lastUpdated)} />
             </View>
           </View>
-        </View>
 
-        {/* Vox Key Management */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Vox Key Management</Text>
-          
-          {!user?.hasVoxKey ? (
-            <VoxButton
-              title="Set Up Vox Key"
-              onPress={() => router.push('/voxkey-wizard')}
-              size="large"
-              style={styles.actionButton}
-            />
-          ) : (
-            <VoxButton
-              title="Reset Vox Key"
-              onPress={handleResetVoxKey}
-              variant="danger"
-              size="large"
-              style={styles.actionButton}
-            />
-          )}
-          
-          <Text style={styles.helpText}>
-            {!user?.hasVoxKey 
-              ? 'Create your voice profile by recording 10 samples of your voice'
-              : 'Reset and record a new voice profile with 10 new samples'
-            }
-          </Text>
-        </View>
-
-        {/* Preferences */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Preferences</Text>
-          
-          <View style={styles.preferenceRow}>
-            <View style={styles.preferenceInfo}>
-              <Text style={styles.preferenceLabel}>Auto-Reset After Verification</Text>
-              <Text style={styles.preferenceDescription}>
-                Automatically return to home screen after each verification
-              </Text>
+          {/* Permissions Section */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Shield color={styles.sectionTitle.color} size={22} />
+              <Text style={styles.sectionTitle}>Permissions</Text>
             </View>
-            <Switch
-              value={autoReset}
-              onValueChange={handleToggleAutoReset}
-              trackColor={{ false: '#E0E0E0', true: '#007AFF' }}
-              thumbColor={autoReset ? '#FFFFFF' : '#FFFFFF'}
-            />
+            <View style={styles.card}>
+              <TouchableOpacity style={styles.permissionRow} onPress={handleOpenSettings}>
+                <View>
+                  <Text style={styles.permissionLabel}>Microphone</Text>
+                  <Text style={styles.permissionStatus}>
+                    Status: <Text style={styles.statusGranted}>{microphonePermission}</Text>
+                  </Text>
+                </View>
+                <ChevronRight color="#888" size={20} />
+              </TouchableOpacity>
+            </View>
           </View>
-        </View>
 
-        {/* Permissions */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Permissions</Text>
-          
-          <VoxButton
-            title="Manage Microphone Access"
-            onPress={handleOpenMicrophoneSettings}
-            variant="secondary"
-            size="large"
-            style={styles.actionButton}
-          />
-          
-          <Text style={styles.helpText}>
-            Vocera needs microphone access to record voice samples for verification
-          </Text>
-        </View>
+          {/* Reset Vox Key Section */}
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <KeyRound color={styles.sectionTitle.color} size={22} />
+              <Text style={styles.sectionTitle}>Reset Vox Key</Text>
+            </View>
+            <View style={styles.card}>
+              <Text style={styles.resetDescription}>
+                If you're experiencing issues with voice verification, you can reset your Vox Key. This will require you to create a new voice profile.
+              </Text>
+              <TouchableOpacity style={styles.resetButton} onPress={handleResetPress}>
+                <Text style={styles.resetButtonText}>Reset Vox Key</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
+      </LinearGradient>
 
-        {/* Danger Zone */}
-        <View style={styles.section}>
-          <Text style={[styles.sectionTitle, { color: '#FF3B30' }]}>Danger Zone</Text>
-          
-          <VoxButton
-            title="Clear All Data"
-            onPress={handleClearAllData}
-            variant="danger"
-            size="large"
-            style={styles.actionButton}
-          />
-          
-          <Text style={styles.helpText}>
-            This will permanently delete all your data including Vox Key, saved calls, and settings
-          </Text>
-        </View>
-
-        {/* App Info */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>About</Text>
-          <View style={styles.infoCard}>
-            <Text style={styles.infoText}>Vocera Voice Verification</Text>
-            <Text style={styles.infoText}>Version 1.0.0</Text>
-            <Text style={styles.infoSubtext}>
-              Secure voice-based identity verification using advanced audio analysis
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={isModalVisible}
+        onRequestClose={() => setModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <TouchableOpacity style={styles.closeButton} onPress={() => setModalVisible(false)}>
+              <X color={styles.modalTitle.color} size={24} />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Are you sure?</Text>
+            <Text style={styles.modalText}>
+              Resetting your Vox Key will permanently delete your current voice profile. You will need to record 10 new samples to continue using voice verification.
             </Text>
+            <TouchableOpacity 
+              style={[styles.modalButton, styles.confirmButton]} 
+              onPress={handleConfirmReset}
+              disabled={isResetting}
+            >
+              {isResetting ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text style={styles.modalButtonText}>Yes, Reset My Vox Key</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.modalButton, styles.cancelButton]} 
+              onPress={() => setModalVisible(false)}
+              disabled={isResetting}
+            >
+              <Text style={[styles.modalButtonText, styles.cancelButtonText]}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </View>
-      </ScrollView>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f9f6f0',
-  },
-  header: {
-    padding: 20,
-    paddingTop: 40,
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
-  },
-  title: {
-    fontFamily: 'GeorgiaPro-CondBlack',
-    fontSize: 32,
-    fontWeight: '700',
-    color: '#333333',
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 16,
-    color: '#666666',
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 20,
-    paddingBottom: 100,
-  },
-  section: {
-    marginBottom: 32,
-  },
-  sectionTitle: {
-    fontFamily: 'GeorgiaPro-CondBlack',
-    fontSize: 20,
-    fontWeight: '600',
-    color: '#333333',
-    marginBottom: 12,
-  },
-  statusCard: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  statusRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  statusLabel: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 16,
-    color: '#666666',
-  },
-  statusValue: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  actionButton: {
-    marginBottom: 8,
-  },
-  helpText: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    color: '#666666',
-    lineHeight: 20,
-    marginTop: 8,
-  },
-  preferenceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  preferenceInfo: {
-    flex: 1,
-    marginRight: 16,
-  },
-  preferenceLabel: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333333',
-    marginBottom: 4,
-  },
-  preferenceDescription: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    color: '#666666',
-    lineHeight: 18,
-  },
-  infoCard: {
-    backgroundColor: '#F8F9FA',
-    borderRadius: 12,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-    alignItems: 'center',
-  },
-  infoText: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#333333',
-    marginBottom: 4,
-  },
-  infoSubtext: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    color: '#666666',
-    textAlign: 'center',
-    lineHeight: 20,
-    marginTop: 8,
-  },
-});
+const InfoRow = ({ label, value }: { label: string, value: string }) => {
+  const styles = getStyles(useColorScheme());
+  return (
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text style={styles.infoValue}>{value}</Text>
+    </View>
+  );
+};
+
+const getStyles = (colorScheme: 'light' | 'dark' | null | undefined) => {
+  const isDark = false;
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: isDark ? '#000000' : '#F9F6F0',
+    },
+    scrollContent: {
+      padding: 20,
+      paddingBottom: 50,
+    },
+    headerTitle: {
+      fontFamily: 'GeorgiaPro-CondBlack',
+      fontSize: 36,
+      fontWeight: 'bold',
+      color: isDark ? '#FFFFFF' : '#1E1E1E',
+      marginBottom: 30,
+      textAlign: 'center',
+    },
+    section: {
+      marginBottom: 30,
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginBottom: 15,
+    },
+    sectionTitle: {
+      fontFamily: 'Inter-SemiBold',
+      fontSize: 20,
+      color: isDark ? '#E0E0E0' : '#333333',
+      marginLeft: 10,
+    },
+    card: {
+      backgroundColor: isDark ? '#1C1C1E' : '#FFFFFF',
+      borderRadius: 12,
+      padding: 18,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.25 : 0.05,
+      shadowRadius: 3.84,
+      elevation: 5,
+    },
+    infoRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      paddingVertical: 12,
+    },
+    infoLabel: {
+      fontFamily: 'Inter-Regular',
+      fontSize: 16,
+      color: isDark ? '#A0A0A0' : '#666666',
+    },
+    infoValue: {
+      fontFamily: 'Inter-SemiBold',
+      fontSize: 16,
+      color: isDark ? '#FFFFFF' : '#1E1E1E',
+      maxWidth: '60%',
+      textAlign: 'right',
+    },
+    divider: {
+      height: 1,
+      backgroundColor: isDark ? '#3A3A3C' : '#EAEAEA',
+    },
+    permissionRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+    },
+    permissionLabel: {
+      fontFamily: 'Inter-SemiBold',
+      fontSize: 16,
+      color: isDark ? '#FFFFFF' : '#1E1E1E',
+    },
+    permissionStatus: {
+      fontFamily: 'Inter-Regular',
+      fontSize: 14,
+      color: isDark ? '#A0A0A0' : '#666666',
+      marginTop: 4,
+    },
+    statusGranted: {
+      color: '#34C759',
+      fontFamily: 'Inter-SemiBold',
+    },
+    resetDescription: {
+      fontFamily: 'Inter-Regular',
+      fontSize: 15,
+      color: isDark ? '#A0A0A0' : '#666666',
+      lineHeight: 22,
+      marginBottom: 20,
+    },
+    resetButton: {
+      backgroundColor: '#D9534F',
+      borderRadius: 10,
+      paddingVertical: 15,
+      alignItems: 'center',
+    },
+    resetButtonText: {
+      fontFamily: 'Inter-Bold',
+      fontSize: 16,
+      color: '#FFFFFF',
+    },
+    // Modal Styles
+    modalContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    },
+    modalContent: {
+      width: '90%',
+      backgroundColor: isDark ? '#2C2C2E' : '#FFFFFF',
+      borderRadius: 20,
+      padding: 25,
+      alignItems: 'center',
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 5,
+      elevation: 10,
+    },
+    closeButton: {
+      position: 'absolute',
+      top: 15,
+      right: 15,
+    },
+    modalTitle: {
+      fontFamily: 'GeorgiaPro-CondBlack',
+      fontSize: 24,
+      fontWeight: 'bold',
+      color: isDark ? '#FFFFFF' : '#1E1E1E',
+      marginBottom: 15,
+      textAlign: 'center',
+    },
+    modalText: {
+      fontFamily: 'Inter-Regular',
+      fontSize: 16,
+      color: isDark ? '#E0E0E0' : '#333333',
+      textAlign: 'center',
+      lineHeight: 24,
+      marginBottom: 30,
+    },
+    modalButton: {
+      width: '100%',
+      paddingVertical: 15,
+      borderRadius: 12,
+      alignItems: 'center',
+      marginBottom: 10,
+    },
+    confirmButton: {
+      backgroundColor: '#D9534F',
+    },
+    cancelButton: {
+      backgroundColor: isDark ? '#3A3A3C' : '#EFEFEF',
+    },
+    modalButtonText: {
+      fontFamily: 'Inter-Bold',
+      fontSize: 16,
+      color: '#FFFFFF',
+    },
+    cancelButtonText: {
+      color: isDark ? '#FFFFFF' : '#1E1E1E',
+    },
+  });
+};

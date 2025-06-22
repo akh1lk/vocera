@@ -7,12 +7,43 @@ import {
   SafeAreaView,
   Alert,
 } from 'react-native';
-import { AudioPlayer } from '../../components/AudioPlayer';
 import { VoxButton } from '../../components/VoxButton';
 import { useVoceraStore } from '../../store/voceraStore';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Phone, CheckCircle2, XCircle } from 'lucide-react-native';
 
 export default function CallsScreen() {
-  const { savedCalls, removeSavedCall } = useVoceraStore();
+  // Replace store implementation to use mock data
+  const { removeSavedCall } = useVoceraStore();
+  const savedCalls = [
+    {
+      id: '1',
+      name: 'John Smith',
+      timestamp: new Date().toISOString(),
+      audioUri: 'mock://audio1.wav',
+      transcript: 'My voice is my password, verify me.',
+      confidence: 0.92,
+      verified: true,
+    },
+    {
+      id: '2',
+      name: 'Sarah Johnson',
+      timestamp: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
+      audioUri: 'mock://audio2.wav',
+      transcript: 'Voice verification test sample recording.',
+      confidence: 0.88,
+      verified: true,
+    },
+    {
+      id: '3',
+      name: 'Michael Chen',
+      timestamp: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
+      audioUri: 'mock://audio3.wav',
+      transcript: 'Failed verification attempt recording.',
+      confidence: 0.45,
+      verified: false,
+    }
+  ];
 
   const handleDeleteCall = (callId: string) => {
     removeSavedCall(callId);
@@ -42,73 +73,85 @@ export default function CallsScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Saved Calls</Text>
-        <Text style={styles.subtitle}>
-          {savedCalls.length} {savedCalls.length === 1 ? 'call' : 'calls'}
-        </Text>
-      </View>
-
-      {savedCalls.length > 0 && (
-        <View style={styles.clearButtonContainer}>
-          <VoxButton
-            title="Clear All"
-            onPress={handleClearAll}
-            variant="danger"
-            size="small"
-          />
-        </View>
-      )}
-
-      <ScrollView 
-        style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+      <LinearGradient
+        colors={['transparent', 'rgba(37, 139, 182, 0.08)', 'rgba(37, 139, 182, 0.18)', 'rgba(37, 139, 182, 0.3)']}
+        locations={[0, 0.3, 0.7, 1]}
+        style={styles.gradientContainer}
       >
-        {savedCalls.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyIcon}>📞</Text>
-            <Text style={styles.emptyTitle}>No Saved Calls</Text>
-            <Text style={styles.emptySubtitle}>
-              Verified calls will appear here for review and playback
+        <View style={styles.content}>
+          <View style={styles.header}>
+            <Text style={styles.title}>Saved Calls</Text>
+            <Text style={styles.subtitle}>
+              {savedCalls.length} {savedCalls.length === 1 ? 'call' : 'calls'}
             </Text>
           </View>
-        ) : (
-          savedCalls.map((call) => (
-            <View key={call.id} style={styles.callCard}>
-              <View style={styles.callHeader}>
-                <View style={styles.callInfo}>
-                  <Text style={styles.callerName}>{call.name}</Text>
-                  <Text style={styles.timestamp}>
-                    {formatTimestamp(call.timestamp)}
-                  </Text>
-                </View>
-                <View style={styles.verificationBadge}>
-                  <Text style={styles.verificationText}>
-                    {call.verified ? '✅ Verified' : '❌ Failed'}
-                  </Text>
-                  <Text style={styles.confidenceText}>
-                    {Math.round(call.confidence * 100)}%
-                  </Text>
-                </View>
-              </View>
 
-              <AudioPlayer
-                audioUri={call.audioUri}
-                title={`${call.name} - Voice Sample`}
-                onDelete={() => handleDeleteCall(call.id)}
+          {savedCalls.length > 0 && (
+            <View style={styles.clearButtonContainer}>
+              <VoxButton
+                title="Clear All"
+                onPress={handleClearAll}
+                variant="danger"
+                size="small"
               />
-
-              {call.transcript && (
-                <View style={styles.transcriptContainer}>
-                  <Text style={styles.transcriptLabel}>Transcript:</Text>
-                  <Text style={styles.transcriptText}>{call.transcript}</Text>
-                </View>
-              )}
             </View>
-          ))
-        )}
-      </ScrollView>
+          )}
+
+          <ScrollView 
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            {savedCalls.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Phone size={64} color="#258bb6" style={styles.emptyIcon} />
+                <Text style={styles.emptyTitle}>No Saved Calls</Text>
+                <Text style={styles.emptySubtitle}>
+                  Verified calls will appear here for review and playback
+                </Text>
+              </View>
+            ) : (
+              savedCalls.map((call) => (
+                <View key={call.id} style={styles.callCard}>
+                  <View style={styles.callHeader}>
+                    <View style={styles.callInfo}>
+                      <Text style={styles.callerName}>{call.name}</Text>
+                      <Text style={styles.timestamp}>
+                        {formatTimestamp(call.timestamp)}
+                      </Text>
+                    </View>
+                    <View style={styles.verificationBadge}>
+                      <View style={styles.verificationRow}>
+                        {call.verified ? (
+                          <CheckCircle2 size={16} color="#34C759" style={{ marginRight: 4 }} />
+                        ) : (
+                          <XCircle size={16} color="#FF3B30" style={{ marginRight: 4 }} />
+                        )}
+                        <Text style={[
+                          styles.verificationText,
+                          { color: call.verified ? '#34C759' : '#FF3B30' }
+                        ]}>
+                          {call.verified ? 'Verified' : 'Failed'}
+                        </Text>
+                      </View>
+                      <Text style={styles.confidenceText}>
+                        {Math.round(call.confidence * 100)}%
+                      </Text>
+                    </View>
+                  </View>
+
+                  {call.transcript && (
+                    <View style={styles.transcriptContainer}>
+                      <Text style={styles.transcriptLabel}>Transcript:</Text>
+                      <Text style={styles.transcriptText}>{call.transcript}</Text>
+                    </View>
+                  )}
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </View>
+      </LinearGradient>
     </SafeAreaView>
   );
 }
@@ -118,36 +161,46 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f9f6f0',
   },
-  header: {
+  gradientContainer: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
     padding: 20,
-    paddingTop: 40,
+    paddingBottom: 100,
+  },
+  header: {
     alignItems: 'center',
+    marginBottom: 20,
+    marginTop: 40,
     borderBottomWidth: 1,
-    borderBottomColor: '#E0E0E0',
+    borderBottomColor: 'rgba(37, 139, 182, 0.1)',
+    paddingBottom: 20,
   },
   title: {
     fontFamily: 'GeorgiaPro-CondBlack',
-    fontSize: 32,
+    fontSize: 40, // reduced from 64
     fontWeight: '700',
-    color: '#333333',
-    marginBottom: 4,
+    color: '#000000',
+    marginBottom: 8,
+    textAlign: 'center',
   },
   subtitle: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 16,
-    color: '#666666',
+    fontFamily: 'Inter-Medium',
+    fontSize: 18,
+    color: '#333333',
+    fontWeight: '500',
   },
   clearButtonContainer: {
     alignItems: 'flex-end',
     paddingHorizontal: 20,
-    paddingTop: 16,
+    marginBottom: 16,
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    padding: 20,
-    paddingBottom: 100,
+    paddingBottom: 40,
   },
   emptyState: {
     flex: 1,
@@ -156,12 +209,11 @@ const styles = StyleSheet.create({
     paddingVertical: 80,
   },
   emptyIcon: {
-    fontSize: 64,
     marginBottom: 16,
   },
   emptyTitle: {
     fontFamily: 'GeorgiaPro-CondBlack',
-    fontSize: 24,
+    fontSize: 32,
     fontWeight: '600',
     color: '#333333',
     marginBottom: 8,
@@ -175,12 +227,17 @@ const styles = StyleSheet.create({
     maxWidth: 280,
   },
   callCard: {
-    backgroundColor: '#F8F9FA',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
     borderRadius: 16,
     padding: 16,
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: 'rgba(37, 139, 182, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   callHeader: {
     flexDirection: 'row',
@@ -206,12 +263,15 @@ const styles = StyleSheet.create({
   verificationBadge: {
     alignItems: 'flex-end',
   },
+  verificationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 2,
+  },
   verificationText: {
     fontFamily: 'Inter-SemiBold',
     fontSize: 14,
     fontWeight: '600',
-    color: '#34C759',
-    marginBottom: 2,
   },
   confidenceText: {
     fontFamily: 'Inter-Regular',
