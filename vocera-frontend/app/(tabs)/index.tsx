@@ -99,6 +99,7 @@ export default function HomeScreen() {
     match: boolean;
     confidence: number;
     transcript: string;
+    isDeepfake?: boolean;
   } | null>(null);
   const [isAnimated, setIsAnimated] = useState(false);
   const [showNameInput, setShowNameInput] = useState(false);
@@ -179,7 +180,6 @@ export default function HomeScreen() {
 
   // Entrance animations on mount
   useEffect(() => {
-
     // Title fades in first
     titleOpacity.value = withTiming(1, { 
       duration: 800,
@@ -475,7 +475,37 @@ export default function HomeScreen() {
     }
 
     setNameError('');
-    startRecordingFlow();
+    
+    // Slower fade out for name input
+    nameInputOpacity.value = withTiming(0, { 
+      duration: 500,
+      easing: Easing.in(Easing.quad)
+    });
+    
+    setTimeout(() => {
+      instructionsOpacity.value = withSpring(1, {
+        damping: 20,
+        stiffness: 100
+      });
+    }, 400);
+
+    setNameSubmitted(true);
+  };
+
+  const handleEditName = () => {
+    instructionsOpacity.value = withTiming(0, { 
+      duration: 300,
+      easing: Easing.in(Easing.quad)
+    });
+    
+    setTimeout(() => {
+      nameInputOpacity.value = withSpring(1, {
+        damping: 20,
+        stiffness: 100
+      });
+    }, 200);
+
+    setNameSubmitted(false);
   };
 
   const startRecordingFlow = async () => {
@@ -599,7 +629,20 @@ export default function HomeScreen() {
         }
       }
 
-      // 8. Cleanup temporary files
+      // 8. Keep the old local storage for backwards compatibility
+      if (verificationResult.match) {
+        addSavedCall({
+          id: Date.now().toString(),
+          name: callerName,
+          timestamp: new Date().toISOString(),
+          audioUri: audioUri,
+          transcript: transcript || '',
+          confidence: verificationResult.confidence,
+          verified: true,
+        });
+      }
+
+      // 9. Cleanup temporary files
       if (segmentedAudio) {
         await audioUtils.cleanupTempFiles();
       }
@@ -626,23 +669,6 @@ export default function HomeScreen() {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
-  };
-
-
-  const handleEditName = () => {
-    instructionsOpacity.value = withTiming(0, { 
-      duration: 300,
-      easing: Easing.in(Easing.quad)
-    });
-    
-    setTimeout(() => {
-      nameInputOpacity.value = withSpring(1, {
-        damping: 20,
-        stiffness: 100
-      });
-    }, 200);
-
-    setNameSubmitted(false);
   };
 
   const handleRecordingStart = () => {
@@ -728,7 +754,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <LinearGradient
         colors={['transparent', 'rgba(37, 139, 182, 0.08)', 'rgba(37, 139, 182, 0.18)', 'rgba(37, 139, 182, 0.3)']}
-        locations={[0, 0.4, 0.8, 1]}
+        locations={[0, 0.3, 0.7, 1]}
         style={styles.gradientContainer}
       >
         {/* X Button - Fixed position with animation */}
@@ -763,7 +789,7 @@ export default function HomeScreen() {
               <>
                 {/* Circular Logo Design - Animated entrance */}
                 <Animated.View style={[styles.logoContainer, animatedLogoStyle]}>
-                  <TouchableOpacity onPress={handleStartVerification} activeOpacity={0.8}>
+                  <TouchableOpacity onPress={handleLogoPress} activeOpacity={0.8}>
                     <View style={styles.circleStack}>
                       {/* Outer Circle */}
                       <Animated.View style={[styles.outerCircle, styles.absoluteCircle, animatedOuterStyle]} />
@@ -882,7 +908,14 @@ export default function HomeScreen() {
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={styles.continueButton} 
-                    onPress={handleNameSubmit}
+                    onPress={() => {
+                      if (callerName.trim()) {
+                        setCurrentStep('ready');
+                        startRecordingFlow();
+                      } else {
+                        handleNameSubmit();
+                      }
+                    }}
                   >
                     <Text style={styles.continueButtonText}>Start Recording</Text>
                   </TouchableOpacity>
@@ -1127,10 +1160,34 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   backButton: {
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(37, 139, 182, 0.3)',
     flex: 1,
   },
+  backButtonText: {
+    color: '#258bb6',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
+    textAlign: 'center',
+  },
   continueButton: {
+    backgroundColor: '#258bb6',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
     flex: 2,
+  },
+  continueButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Inter-SemiBold',
+    textAlign: 'center',
   },
   changeNameButton: {
     alignSelf: 'center',
@@ -1199,10 +1256,10 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     minWidth: 280,
     textAlign: 'center',
-    shadowColor: '#258bb6',      // Your blue glow
-    shadowOffset: { width: 0, height: 0 },  // Even glow all around
-    shadowOpacity: 0.6,          // Visible glow
-    shadowRadius: 12,            // Size of glow
+    shadowColor: '#258bb6',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 12,
     elevation: 8,
   },
   nameError: {
@@ -1213,14 +1270,14 @@ const styles = StyleSheet.create({
   },
   instructions: {
     position: 'absolute',
-    top: 50, // Much higher up
+    top: 50,
     left: 20,
     right: 20,
     alignItems: 'center',
     paddingHorizontal: 20,
   },
   instructionsText: {
-    fontFamily: 'GeorgiaPro-CondRegular', // Changed to Georgia Pro
+    fontFamily: 'GeorgiaPro-CondRegular',
     fontSize: 30,
     fontWeight: '600',
     color: '#258bb6',
@@ -1254,45 +1311,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontFamily: 'Inter-Regular',
     marginBottom: 10,
-  },
-  nameError: {
-    color: '#FF3B30',
-    fontSize: 14,
-    marginBottom: 20,
-    textAlign: 'center',
-    fontFamily: 'Inter-Regular',
-  },
-  buttonRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 15,
-    marginTop: 20,
-  },
-  backButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 139, 182, 0.3)',
-  },
-  backButtonText: {
-    color: '#258bb6',
-    fontSize: 16,
-    fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
-  },
-  continueButton: {
-    backgroundColor: '#258bb6',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-  },
-  continueButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
   },
   recordingFlow: {
     alignItems: 'center',
@@ -1344,10 +1362,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#FF3B30',
     textAlign: 'center',
-  },
-  processingContainer: {
-    alignItems: 'center',
-    paddingHorizontal: 20,
   },
   processingText: {
     fontFamily: 'GeorgiaPro-CondBlack',

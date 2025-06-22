@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, Pressable, ActivityIndicator, Alert } from 'react-native';
+import * as FileSystem from 'expo-file-system';
 import Animated, { useSharedValue, withSpring, useAnimatedStyle } from 'react-native-reanimated';
 import { useAudioRecorder, AudioModule, RecordingPresets } from 'expo-audio';
 import { useAudioRecorderState } from 'expo-audio';
@@ -105,6 +106,13 @@ export default function RecordClipsScreen() {
       
       if (uri) {
         console.log('Recording saved to:', uri);
+        
+        // Don't add more clips if we already have 10
+        if (recordedClips.length >= totalClips) {
+          console.log('Already have maximum clips, ignoring additional recording');
+          return;
+        }
+        
         const newClips = [...recordedClips, uri];
         setRecordedClips(newClips);
         setCurrentClipIndex(prev => Math.min(prev + 1, totalClips));
@@ -113,7 +121,7 @@ export default function RecordClipsScreen() {
         
         if (newClips.length >= totalClips) {
           console.log('All clips recorded, sending to backend...');
-          await sendClipsToBackend(newClips.slice(0, totalClips), currentPhrase);
+          await sendClipsToBackend(newClips, currentPhrase);
         }
       } else {
         console.error('No URI returned from recording');
@@ -147,40 +155,70 @@ export default function RecordClipsScreen() {
       );
       console.log('Vox key created:', voxKey);
 
-      // Step 2: Prepare audio files for upload
-      const formData = new FormData();
+      // Step 2: Upload audio files to Supabase storage
+      const uploadedFiles = [];
+      const folderName = `vox_key_${voxKey.id}`;
       
-      // Add each audio file to the form data
-      uris.forEach((uri, i) => {
-        formData.append('audio_files', {
-          uri,
-          name: `clip_${i + 1}.wav`,
-          type: 'audio/wav',
-        } as any);
-      });
-
-      // Add vox key ID and other metadata
-      formData.append('vox_key_id', voxKey.id.toString());
-      formData.append('user_id', user.id);
-      if (phrase) {
-        formData.append('phrase_data', JSON.stringify(phrase));
+      for (let i = 0; i < uris.length; i++) {
+        const uri = uris[i];
+        const fileName = `clip_${i + 1}.wav`;
+        const filePath = `${folderName}/${fileName}`;
+        
+        try {
+          // Check if file exists
+          const fileInfo = await FileSystem.getInfoAsync(uri);
+          if (!fileInfo.exists) {
+            throw new Error(`Audio file ${fileName} does not exist`);
+          }
+          
+          // Read file as base64 for Supabase storage
+          const fileContent = await FileSystem.readAsStringAsync(uri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+          
+          // Convert base64 to array buffer for upload
+          const bytes = Uint8Array.from(atob(fileContent), c => c.charCodeAt(0));
+          
+          // Upload to Supabase storage
+          console.log(`Uploading ${fileName} to Supabase storage...`);
+          const audioUrl = await supabaseService.uploadAudioFile(filePath, bytes);
+          
+          uploadedFiles.push({
+            fileName,
+            url: audioUrl,
+            size: fileInfo.size
+          });
+          
+          console.log(`Uploaded ${fileName} to: ${audioUrl} (${fileInfo.size} bytes)`);
+        } catch (fileError) {
+          console.error(`Error uploading file ${fileName}:`, fileError);
+          throw new Error(`Failed to upload audio file ${fileName}`);
+        }
       }
+      
+      console.log(`All ${uploadedFiles.length} files uploaded to folder: ${folderName}`);
 
-      // Step 3: Upload to your training API
-      console.log('Uploading', uris.length, 'audio files for vox key:', voxKey.id);
+      // Step 3: Send file URLs to your training API
+      console.log('Sending', uploadedFiles.length, 'file URLs to training API for vox key:', voxKey.id);
       
       // For demo: simulate API call instead of real upload
-      const USE_REAL_API = false; // Set to true when you have your training API ready
+      const USE_REAL_API = true; // Set to true when you have your training API ready
       
       let result;
       if (USE_REAL_API) {
         // TODO: Replace with your actual API endpoint
-        const apiResponse = await fetch('https://your-training-api.com/train-voice', {
+        const apiResponse = await fetch('https://vocera.herokuapp.com/calibrate', {
           method: 'POST',
-          body: formData,
           headers: {
-            'Content-Type': 'multipart/form-data',
+            'Content-Type': 'application/json',
           },
+          body: JSON.stringify({
+            vox_key_id: voxKey.id,
+            user_id: user.id,
+            phrase_data: phrase,
+            audio_files: uploadedFiles,
+            storage_folder: folderName
+          }),
         });
 
         if (!apiResponse.ok) {
@@ -190,13 +228,15 @@ export default function RecordClipsScreen() {
         result = await apiResponse.json();
       } else {
         // Simulate API response for demo
-        console.log('Simulating API upload...');
+        console.log('Simulating API training with file URLs...');
         await new Promise(resolve => setTimeout(resolve, 2000)); // Simulate network delay
         result = {
           success: true,
           vox_key_id: voxKey.id,
           training_data_url: `https://storage.example.com/voice-models/${voxKey.id}.model`,
-          message: 'Voice model trained successfully'
+          message: 'Voice model trained successfully',
+          files_processed: uploadedFiles.length,
+          storage_folder: folderName
         };
       }
       
@@ -294,7 +334,7 @@ export default function RecordClipsScreen() {
                 {[...Array(7)].map((_, i) => {
                   const meterValue = recorderState.metering ?? -60;
                   const normalizedValue = Math.max(0, Math.min(1, (meterValue + 60) / 60));
-                  const barHeight = 10 + normalizedValue * 30;
+                  const barHeight = 8 + normalizedValue * 20;
                   
                   return (
                     <Animated.View
@@ -458,12 +498,12 @@ const styles = StyleSheet.create({
   },
   recordingContainer: {
     position: 'absolute',
-    top: 0,
+    top: 20,
     alignItems: 'center',
     width: '100%',
   },
   timer: { 
-    fontSize: 48, 
+    fontSize: 32, 
     fontWeight: 'bold', 
     color: '#258bb6',
     fontFamily: 'GeorgiaPro-CondBlack',
@@ -472,27 +512,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    height: 50,
-    marginVertical: 10,
-    gap: 4,
+    height: 35,
+    marginVertical: 8,
+    gap: 3,
   },
   waveformBar: {
-    width: 6,
+    width: 4,
     backgroundColor: '#258bb6',
-    borderRadius: 3,
-    marginHorizontal: 2,
+    borderRadius: 2,
+    marginHorizontal: 1,
   },
   recordingText: {
-    fontSize: 16,
+    fontSize: 14,
     color: '#258bb6',
-    marginTop: 8,
+    marginTop: 6,
     fontFamily: 'Inter-Medium',
   },
   buttonContainer: {
     position: 'relative',
     alignItems: 'center',
-    justifyContent: 'center',
-    height: 200,
+    justifyContent: 'flex-end',
+    height: 240,
     marginBottom: 20,
   },
   pressableContainer: {

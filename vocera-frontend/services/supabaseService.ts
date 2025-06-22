@@ -210,15 +210,18 @@ class SupabaseService {
   }
 
   // Storage methods for audio files
-  async uploadAudioFile(filePath: string, file: Blob | File): Promise<string> {
+  async uploadAudioFile(filePath: string, file: Blob | File | Uint8Array): Promise<string> {
     const { data, error } = await supabase.storage
-      .from('audio-files')
-      .upload(filePath, file);
+      .from('vocera-audiostore')
+      .upload(filePath, file, {
+        contentType: 'audio/wav',
+        upsert: false
+      });
 
     if (error) throw error;
     
     const { data: { publicUrl } } = supabase.storage
-      .from('audio-files')
+      .from('vocera-audiostore')
       .getPublicUrl(data.path);
 
     return publicUrl;
@@ -226,7 +229,7 @@ class SupabaseService {
 
   async deleteAudioFile(filePath: string): Promise<void> {
     const { error } = await supabase.storage
-      .from('audio-files')
+      .from('vocera-audiostore')
       .remove([filePath]);
 
     if (error) throw error;
@@ -282,7 +285,7 @@ class SupabaseService {
         
       } else if (nameParts.length >= 3) {
         // First, middle, last name
-        const [firstName, middleName, ...lastNameParts] = nameParts;
+        const [firstName, , ...lastNameParts] = nameParts;
         const lastName = lastNameParts.join(' ');
         
         const { data, error } = await supabase
