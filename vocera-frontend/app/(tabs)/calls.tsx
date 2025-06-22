@@ -81,7 +81,10 @@ export default function CallsScreen() {
                   <View style={styles.callHeader}>
                     <View style={styles.callInfo}>
                       <Text style={styles.callerName}>
-                        {result.target || 'Unknown Caller'}
+                        {result.target_user 
+                          ? `${result.target_user.first_name} ${result.target_user.last_name}`
+                          : 'Unknown Caller'
+                        }
                       </Text>
                       <Text style={styles.timestamp}>
                         {formatTimestamp(result.created_at)}
@@ -102,7 +105,7 @@ export default function CallsScreen() {
                         </Text>
                       </View>
                       <Text style={styles.confidenceText}>
-                        {Math.round(result.confidence * 100)}%
+                        {Math.round(result.confidence)}%
                       </Text>
                     </View>
                   </View>

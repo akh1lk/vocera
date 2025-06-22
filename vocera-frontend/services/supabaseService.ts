@@ -200,7 +200,10 @@ class SupabaseService {
   async getUserResults(userId: string, limit: number = 50): Promise<Result[]> {
     const { data, error } = await supabase
       .from('results')
-      .select('*')
+      .select(`
+        *,
+        target_user:users!results_target_fkey(first_name, last_name)
+      `)
       .eq('saved_by', userId)
       .order('created_at', { ascending: false })
       .limit(limit);
@@ -256,51 +259,25 @@ class SupabaseService {
   async findUserByName(callerName: string): Promise<UserProfile | null> {
     try {
       const nameParts = callerName.trim().split(/\s+/);
-      
-      if (nameParts.length === 1) {
-        // Single name - could be first or last name
-        const { data, error } = await supabase
-          .from('users')
-          .select('*')
-          .or(`first_name.ilike.%${nameParts[0]}%,last_name.ilike.%${nameParts[0]}%`)
-          .limit(1)
-          .single();
-        
-        if (error && error.code !== 'PGRST116') throw error;
-        return data || null;
-        
-      } else if (nameParts.length === 2) {
-        // First and last name
-        const [firstName, lastName] = nameParts;
-        const { data, error } = await supabase
-          .from('users')
-          .select('*')
-          .ilike('first_name', `%${firstName}%`)
-          .ilike('last_name', `%${lastName}%`)
-          .limit(1)
-          .single();
-        
-        if (error && error.code !== 'PGRST116') throw error;
-        return data || null;
-        
-      } else if (nameParts.length >= 3) {
-        // First, middle, last name
-        const [firstName, , ...lastNameParts] = nameParts;
-        const lastName = lastNameParts.join(' ');
-        
-        const { data, error } = await supabase
-          .from('users')
-          .select('*')
-          .ilike('first_name', `%${firstName}%`)
-          .ilike('last_name', `%${lastName}%`)
-          .limit(1)
-          .single();
-        
-        if (error && error.code !== 'PGRST116') throw error;
-        return data || null;
+
+      if (nameParts.length !== 2) {
+        console.error('Caller name must consist of exactly two words (first and last name).');
+        return null;
       }
-      
-      return null;
+
+      const [firstName, lastName] = nameParts;
+
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .ilike('first_name', `%${firstName}%`)
+        .ilike('last_name', `%${lastName}%`)
+        .limit(1)
+        .single();
+
+      if (error && error.code !== 'PGRST116') throw error;
+      return data || null;
+
     } catch (error) {
       console.error('Error finding user by name:', error);
       return null;

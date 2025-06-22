@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,8 @@ import {
   SafeAreaView,
   TouchableOpacity,
   Dimensions,
-  TextInput
+  TextInput,
+  ScrollView
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
@@ -30,12 +31,11 @@ import { VoxButton } from '../../components/VoxButton';
 import { NameInput } from '../../components/NameInput';
 import { InstructionsPanel } from '../../components/InstructionsPanel';
 import { TranscriptView } from '../../components/TranscriptView';
-import { Recorder } from '../../components/Recorder';
 import { useVoceraStore } from '../../store/voceraStore';
 import { supabaseService } from '../../services/supabaseService';
 import { openaiService } from '../../services/openaiService';
 import { audioUtils } from '../../services/audioUtils';
-import { RecordingResult } from '../../hooks/useAudioRecorder';
+import { useAudioRecorder, AudioModule, RecordingPresets } from 'expo-audio';
 
 type VerificationStep = 'initial' | 'name-entry' | 'ready' | 'recording' | 'processing' | 'result';
 
@@ -99,6 +99,21 @@ export default function HomeScreen() {
   const [isAnimated, setIsAnimated] = useState(false);
   const [showNameInput, setShowNameInput] = useState(false);
   const [nameSubmitted, setNameSubmitted] = useState(false);
+  const [recordingTimeLeft, setRecordingTimeLeft] = useState(5);
+  const [showRecordingText, setShowRecordingText] = useState(false);
+
+  // Audio recording
+  const audioRecorder = useAudioRecorder({
+    extension: '.wav',
+    sampleRate: 44100,
+    numberOfChannels: 1,
+    bitRate: 128000,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  });
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const currentTargetUserIdRef = useRef<string | null>(null);
 
   // Animation values
   const logoTranslateY = useSharedValue(0);
@@ -109,6 +124,9 @@ export default function HomeScreen() {
   const instructionsOpacity = useSharedValue(0);
   const xButtonOpacity = useSharedValue(0);
   const xButtonScale = useSharedValue(0.8);
+  const recordingTextOpacity = useSharedValue(0);
+  const transcriptOpacity = useSharedValue(0);
+  const resultOpacity = useSharedValue(0);
 
   // Entrance animation values
   const entranceProgress = useSharedValue(0);
@@ -193,7 +211,27 @@ export default function HomeScreen() {
     });
   }, []);
 
-  const handleLogoPress = () => {
+  const handleLogoPress = async () => {
+    // Start recording immediately
+    try {
+      await audioRecorder.prepareToRecordAsync({
+        extension: '.wav',
+        sampleRate: 44100,
+        numberOfChannels: 1,
+        bitRate: 128000,
+        linearPCMBitDepth: 16,
+        linearPCMIsBigEndian: false,
+        linearPCMIsFloat: false,
+        isMeteringEnabled: true,
+      });
+      audioRecorder.record();
+      console.log('Recording started on logo press');
+      
+    } catch (error) {
+      console.error('Failed to start recording:', error);
+      Alert.alert('Error', 'Could not start recording.');
+      return;
+    }
     // Smoother ripple effect with better timing
     innerRippleScale.value = withSequence(
       withSpring(1.15, { damping: 8, stiffness: 150 }),
@@ -318,6 +356,23 @@ export default function HomeScreen() {
       setCurrentTranscript('');
       setNameSubmitted(false);
       setTargetUserId(null);
+      currentTargetUserIdRef.current = null;
+      setShowRecordingText(false);
+      setRecordingTimeLeft(5);
+      recordingTextOpacity.value = 0;
+      transcriptOpacity.value = 0;
+      resultOpacity.value = 0;
+      setCurrentStep('initial'); // Reset to initial step so button appears
+      
+      // Clean up recording if active
+      if (recordingTimerRef.current) {
+        clearInterval(recordingTimerRef.current);
+        recordingTimerRef.current = null;
+      }
+      
+      // Stop and cleanup audio recording
+      audioRecorder.stop().catch(console.error);
+      audioUtils.cleanupTempFiles().catch(console.error);
     }, 300);
   };
 
@@ -327,7 +382,7 @@ export default function HomeScreen() {
       { translateY: logoTranslateY.value },
       { scale: logoScale.value }
     ],
-    opacity: logoOpacity.value
+    opacity: 1 // Keep logo always visible
   }));
 
   const animatedTitleStyle = useAnimatedStyle(() => ({
@@ -375,6 +430,27 @@ export default function HomeScreen() {
       translateY: interpolate(instructionsOpacity.value, [0, 1], [-10, 0])
     }],
     pointerEvents: instructionsOpacity.value > 0 ? 'auto' : 'none',
+  }));
+
+  const animatedRecordingTextStyle = useAnimatedStyle(() => ({
+    opacity: recordingTextOpacity.value,
+    transform: [{
+      translateY: interpolate(recordingTextOpacity.value, [0, 1], [10, 0])
+    }]
+  }));
+
+  const animatedTranscriptStyle = useAnimatedStyle(() => ({
+    opacity: transcriptOpacity.value,
+    transform: [{
+      translateY: interpolate(transcriptOpacity.value, [0, 1], [20, 0])
+    }]
+  }));
+
+  const animatedResultStyle = useAnimatedStyle(() => ({
+    opacity: resultOpacity.value,
+    transform: [{
+      translateY: interpolate(resultOpacity.value, [0, 1], [30, 0])
+    }]
   }));
 
   const animatedOuterStyle = useAnimatedStyle(() => ({
@@ -436,8 +512,9 @@ export default function HomeScreen() {
         return;
       }
       
-      // Store the target user ID
+      // Store the target user ID in both state and ref
       setTargetUserId(foundUser.id);
+      currentTargetUserIdRef.current = foundUser.id;
       console.log('Found user:', foundUser.first_name, foundUser.last_name, 'ID:', foundUser.id);
       
       // Slower fade out for name input
@@ -451,6 +528,28 @@ export default function HomeScreen() {
           damping: 20,
           stiffness: 100
         });
+        
+        // Start 5-second countdown for vox key phrase
+        setRecordingTimeLeft(5);
+        recordingTimerRef.current = setInterval(() => {
+          setRecordingTimeLeft(prev => {
+            console.log('Recording time left:', prev);
+            
+            if (prev <= 1) {
+              handleStopRecording();
+              return 0;
+            }
+            
+            // Show recording text when 0.5 seconds left (prev will be 1 after decrement)
+            if (prev === 2) {
+              console.log('Showing recording text');
+              setShowRecordingText(true);
+              recordingTextOpacity.value = withTiming(1, { duration: 300 });
+            }
+            
+            return prev - 1;
+          });
+        }, 1000);
       }, 400);
 
       setNameSubmitted(true);
@@ -458,6 +557,41 @@ export default function HomeScreen() {
     } catch (error) {
       console.error('Error looking up user:', error);
       setNameError('Error finding user. Please try again.');
+    }
+  };
+
+  const handleStopRecording = async () => {
+    // Clear the timer
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+
+    // Hide recording text when recording stops
+    setShowRecordingText(false);
+    recordingTextOpacity.value = withTiming(0, { duration: 300 });
+
+    try {
+      // Stop the recording
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
+      
+      if (uri) {
+        console.log('Recording completed, URI:', uri);
+        console.log('Target user ID at recording completion:', targetUserId);
+        
+        // Debug: Check file extension - we can see it's .m4a
+        console.log('File extension from URI:', uri.split('.').pop());
+        
+        // Create a RecordingResult-like object for processing
+        const result = { uri };
+        handleRecordingComplete(result);
+      } else {
+        throw new Error('No recording URI available');
+      }
+    } catch (error) {
+      console.error('Failed to stop recording:', error);
+      Alert.alert('Error', 'Failed to complete recording. Please try again.');
     }
   };
 
@@ -477,15 +611,17 @@ export default function HomeScreen() {
     setNameSubmitted(false);
   };
 
-  const handleRecordingStart = () => {
-    setCurrentStep('recording');
-    setCurrentTranscript('');
-  };
+  const handleRecordingComplete = async (result: { uri: string }) => {
+    setCurrentStep('result');
+    
+    // Fade in transcript area
+    transcriptOpacity.value = withTiming(1, { 
+      duration: 600,
+      easing: Easing.out(Easing.quad)
+    });
 
-  const handleRecordingComplete = async (result: RecordingResult) => {
-    setCurrentStep('processing');
-
-    if (!targetUserId) {
+    const currentTargetUserId = currentTargetUserIdRef.current;
+    if (!currentTargetUserId) {
       Alert.alert('Error', 'No target user found. Please try again.');
       setCurrentStep('ready');
       return;
@@ -513,28 +649,26 @@ export default function HomeScreen() {
         throw new Error('Failed to convert audio to base64');
       }
 
-      // Call your external verification API
-      const verificationResponse = await fetch('https://vocera.herokuapp.com/verify', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          target_user_id: targetUserId,
-          audio_data: audioBase64,
-          caller_name: callerName
-        }),
-      });
+      // Simple mock API response for testing
+      console.log('Sending audio to verification API...');
+      console.log('Target user ID:', currentTargetUserId);
+      console.log('Caller name:', callerName);
+      console.log('Audio data length:', audioBase64?.length);
+      
+      // Mock verification result (only prediction and confidence)
+      const verificationResult = {
+        prediction: Math.random() > 0.5, // Random true/false
+        confidence: Math.floor(Math.random() * 100), // Random 0-100
+        message: 'Mock verification completed'
+        // No transcript - that comes from Whisper
+      };
+      
+      console.log('Mock verification result:', verificationResult);
 
-      if (!verificationResponse.ok) {
-        throw new Error(`Verification API failed: ${verificationResponse.status}`);
-      }
-
-      const verificationResult = await verificationResponse.json();
-
-      // Set the transcript from Whisper (or fallback to verification transcript)
-      const finalTranscript = fullTranscript !== 'Transcription failed' ? fullTranscript : (verificationResult.transcript || 'No transcript available');
+      // Set the transcript from Whisper only
+      const finalTranscript = fullTranscript !== 'Transcription failed' ? fullTranscript : 'Transcription unavailable';
       setCurrentTranscript(finalTranscript);
+      console.log('Final transcript from Whisper:', finalTranscript);
 
       // Create final result object
       const finalResult = {
@@ -550,7 +684,7 @@ export default function HomeScreen() {
           prediction: finalResult.match,
           confidence: finalResult.confidence,
           transcript: finalTranscript,
-          target: callerName,
+          target: currentTargetUserId, // Use UUID instead of name
           saved_by: user?.id
         });
         console.log('Result auto-saved to database');
@@ -572,6 +706,18 @@ export default function HomeScreen() {
 
       setCurrentStep('result');
 
+      // Wait 1 second then fade in both transcript and verification together
+      setTimeout(() => {
+        transcriptOpacity.value = withTiming(1, { 
+          duration: 800,
+          easing: Easing.out(Easing.quad)
+        });
+        resultOpacity.value = withTiming(1, { 
+          duration: 800,
+          easing: Easing.out(Easing.quad)
+        });
+      }, 1000);
+
       // Cleanup temporary audio files using audioUtils
       await audioUtils.cleanupTempFiles();
 
@@ -585,10 +731,6 @@ export default function HomeScreen() {
     }
   };
 
-  const handleRecordingCancel = () => {
-    setCurrentStep('ready');
-  };
-
   const handleStartOver = () => {
     handleResetAnimation();
     setCurrentStep('initial');
@@ -600,10 +742,6 @@ export default function HomeScreen() {
     setTargetUserId(null);
   };
 
-  const handleSaveCall = () => {
-    Alert.alert('Success', 'Call has been saved to your records.');
-    handleStartOver();
-  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -690,7 +828,43 @@ export default function HomeScreen() {
                   <Text style={styles.instructionsText}>
                     Ask for {callerName || 'the caller'}'s next words to be their Vox Key phrase
                   </Text>
+                  
+                  {/* Recording validation text */}
+                  <Animated.View style={[styles.recordingTextContainer, animatedRecordingTextStyle]}>
+                    <Text style={styles.recordingText}>Recording for validation...</Text>
+                  </Animated.View>
                 </Animated.View>
+                
+                {/* Transcript - Below Vox Key instruction */}
+                {currentStep === 'result' && currentTranscript && (
+                  <Animated.View style={[styles.transcriptContainer, animatedTranscriptStyle]}>
+                    <View style={styles.transcriptCard}>
+                      <Text style={styles.transcriptLabel}>Transcript</Text>
+                      <ScrollView style={styles.transcriptScrollView} showsVerticalScrollIndicator={false}>
+                        <Text style={styles.transcriptText}>{currentTranscript}</Text>
+                      </ScrollView>
+                    </View>
+                  </Animated.View>
+                )}
+                
+                {/* Verification Result - Below transcript */}
+                {currentStep === 'result' && verificationResult && (
+                  <Animated.View style={[styles.resultContainer, animatedResultStyle]}>
+                    <View style={styles.verificationCard}>
+                      <Text style={styles.verificationLabel}>Verification Result</Text>
+                      <Text style={[
+                        styles.verificationStatus,
+                        { color: verificationResult.match ? '#258bb6' : '#FF3B30' }
+                      ]}>
+                        {verificationResult.match ? 'Verified' : 'Not Verified'}
+                      </Text>
+                      <Text style={styles.confidenceText}>
+                        Confidence: {Math.round(verificationResult.confidence)}%
+                      </Text>
+                      <Text style={styles.callerNameText}>{callerName}</Text>
+                    </View>
+                  </Animated.View>
+                )}
               </>
             )}
 
@@ -729,82 +903,9 @@ export default function HomeScreen() {
               </View>
             )}
 
-            {(currentStep === 'ready' || currentStep === 'recording') && (
-              <View>
-                <Recorder
-                  onRecordingComplete={handleRecordingComplete}
-                  onRecordingStart={handleRecordingStart}
-                  onRecordingCancel={handleRecordingCancel}
-                  maxDuration={10}
-                />
-                <VoxButton
-                  title="Change Name"
-                  onPress={() => setCurrentStep('name-entry')}
-                  variant="secondary"
-                  size="small"
-                  style={styles.changeNameButton}
-                />
-              </View>
-            )}
 
-            {currentStep === 'processing' && (
-              <View style={styles.processingContainer}>
-                <VoxButton
-                  title="Analyzing..."
-                  onPress={() => { }}
-                  size="xl"
-                  loading
-                  disabled
-                />
-              </View>
-            )}
-
-            {(currentStep === 'recording' || currentStep === 'processing' || currentStep === 'result') && (
-              <TranscriptView
-                transcript={currentTranscript}
-                isLive={currentStep === 'recording'}
-                confidence={verificationResult?.confidence}
-              />
-            )}
-
-            {currentStep === 'result' && verificationResult && (
-              <View style={styles.resultContainer}>
-                <View style={[
-                  styles.resultCard,
-                  { backgroundColor: verificationResult.match ? '#D4F4DD' : '#FFE6E6' }
-                ]}>
-                  <Text style={styles.resultIcon}>
-                    {verificationResult.match ? '✅' : '❌'}
-                  </Text>
-                  <Text style={styles.resultTitle}>
-                    {verificationResult.match ? 'Verified' : 'Not Verified'}
-                  </Text>
-                  <Text style={styles.resultDetails}>
-                    Confidence: {Math.round(verificationResult.confidence * 100)}%
-                  </Text>
-                  <Text style={styles.callerName}>{callerName}</Text>
-                </View>
-
-                <View style={styles.resultButtons}>
-                  {verificationResult.match && (
-                    <VoxButton
-                      title="Save Call"
-                      onPress={handleSaveCall}
-                      size="medium"
-                      style={styles.saveButton}
-                    />
-                  )}
-                  <VoxButton
-                    title="Verify Another"
-                    onPress={handleStartOver}
-                    variant="secondary"
-                    size="medium"
-                    style={styles.anotherButton}
-                  />
-                </View>
-              </View>
-            )}
           </Animated.View>
+
         </View>
       </LinearGradient>
     </SafeAreaView>
@@ -982,44 +1083,48 @@ const styles = StyleSheet.create({
     marginVertical: 32,
   },
   resultContainer: {
-    marginTop: 24,
+    marginTop: 40,
+    paddingHorizontal: 20,
   },
-  resultCard: {
-    borderRadius: 20,
-    padding: 24,
+  verificationCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 16,
+    padding: 20,
     alignItems: 'center',
-    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: 'rgba(37, 139, 182, 0.1)',
   },
-  resultIcon: {
-    fontSize: 48,
+  verificationLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: '#666',
     marginBottom: 12,
+    textAlign: 'center',
   },
-  resultTitle: {
-    fontSize: 28,
+  verificationStatus: {
+    fontFamily: 'GeorgiaPro-CondBlack',
+    fontSize: 32,
     fontWeight: '700',
-    color: '#333333',
     marginBottom: 8,
+    textAlign: 'center',
   },
-  resultDetails: {
+  confidenceText: {
+    fontFamily: 'Inter-Medium',
     fontSize: 16,
-    color: '#666666',
-    marginBottom: 4,
+    color: '#666',
+    marginBottom: 8,
+    textAlign: 'center',
   },
-  callerName: {
+  callerNameText: {
+    fontFamily: 'Inter-SemiBold',
     fontSize: 18,
-    fontWeight: '600',
-    color: '#333333',
-  },
-  resultButtons: {
-    gap: 12,
-  },
-  saveButton: {
-    marginBottom: 8,
-  },
-  anotherButton: {
-    marginBottom: 8,
+    color: '#333',
+    textAlign: 'center',
   },
   simpleNameInput: {
     marginTop: 20,
@@ -1068,5 +1173,51 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     lineHeight: 28,
     marginBottom: 16,
+  },
+  recordingTextContainer: {
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  recordingText: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#FF6B6B',
+    textAlign: 'center',
+  },
+  transcriptContainer: {
+    marginTop: 500,
+    marginBottom: 16,
+    paddingHorizontal: 20,
+  },
+  transcriptCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 16,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(37, 139, 182, 0.1)',
+    maxHeight: 150,
+  },
+  transcriptScrollView: {
+    maxHeight: 120,
+  },
+  transcriptLabel: {
+    fontFamily: 'Inter-Medium',
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  transcriptText: {
+    fontFamily: 'GeorgiaPro-CondRegular',
+    fontSize: 18,
+    color: '#333',
+    textAlign: 'center',
+    lineHeight: 24,
   },
 });

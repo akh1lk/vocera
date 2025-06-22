@@ -18,6 +18,7 @@ export default function RecordClipsScreen() {
   const [isRecording, setIsRecording] = useState(false);
   const [timeLeft, setTimeLeft] = useState(5);
   const [isUploading, setIsUploading] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false); // NEW STATE
   
   // Dynamic phrase state
   const [currentPhrase, setCurrentPhrase] = useState<ClaudePhrase | null>(null);
@@ -61,13 +62,19 @@ export default function RecordClipsScreen() {
     })();
   }, []);
 
+  // MODIFIED TIMER USEEFFECT
   useEffect(() => {
     if (isRecording && timeLeft > 0) {
       timerRef.current = setInterval(() => {
-        setTimeLeft(prev => prev - 1);
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            // Timer reached 0, stop recording
+            handleStopRecording();
+            return 5;
+          }
+          return prev - 1;
+        });
       }, 1000);
-    } else if (timeLeft === 0 && isRecording) {
-      handleStopRecording();
     }
 
     return () => {
@@ -96,7 +103,19 @@ export default function RecordClipsScreen() {
     }
   };
 
+  // MODIFIED STOP RECORDING FUNCTION
   const handleStopRecording = async () => {
+    // Clear the timer immediately when stop is called
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    
+    // Reset UI state immediately
+    setIsRecording(false);
+    setTimeLeft(5);
+    scale.value = withSpring(1);
+    
     try {
       // Stop the recording
       await audioRecorder.stop();
@@ -107,30 +126,30 @@ export default function RecordClipsScreen() {
       if (uri) {
         console.log('Recording saved to:', uri);
         
-        // Don't add more clips if we already have 10
-        if (recordedClips.length >= totalClips) {
+        // Add the new recording to the array
+        const newClips = [...recordedClips, uri];
+        
+        // Check if we've reached the limit AFTER adding the new clip
+        if (newClips.length > totalClips) {
           console.log('Already have maximum clips, ignoring additional recording');
           return;
         }
         
-        const newClips = [...recordedClips, uri];
         setRecordedClips(newClips);
-        setCurrentClipIndex(prev => Math.min(prev + 1, totalClips));
+        setCurrentClipIndex(newClips.length);
         
         console.log('Total clips recorded:', newClips.length);
         
         if (newClips.length >= totalClips) {
           console.log('All clips recorded, sending to backend...');
+          setIsProcessing(true);
           await sendClipsToBackend(newClips, currentPhrase);
+          setIsProcessing(false);
         }
       } else {
         console.error('No URI returned from recording');
         Alert.alert('Error', 'Recording failed - no file was created');
       }
-
-      setIsRecording(false);
-      setTimeLeft(5);
-      scale.value = withSpring(1);
     } catch (error) {
       console.error('Failed to stop recording:', error);
       Alert.alert('Error', 'Could not stop recording.');
@@ -161,7 +180,9 @@ export default function RecordClipsScreen() {
       
       for (let i = 0; i < uris.length; i++) {
         const uri = uris[i];
-        const fileName = `clip_${i + 1}.wav`;
+        // Detect file extension from URI
+        const fileExtension = uri.split('.').pop() || 'm4a';
+        const fileName = `clip_${i + 1}.${fileExtension}`;
         const filePath = `${folderName}/${fileName}`;
         
         try {
@@ -170,6 +191,8 @@ export default function RecordClipsScreen() {
           if (!fileInfo.exists) {
             throw new Error(`Audio file ${fileName} does not exist`);
           }
+          
+          console.log(`Reading file ${i + 1}: ${uri} (${fileInfo.size} bytes, format: ${fileExtension})`);
           
           // Read file as base64 for Supabase storage
           const fileContent = await FileSystem.readAsStringAsync(uri, {
@@ -186,7 +209,9 @@ export default function RecordClipsScreen() {
           uploadedFiles.push({
             fileName,
             url: audioUrl,
-            size: fileInfo.size
+            size: fileInfo.size,
+            format: fileExtension, // Send actual format
+            originalUri: uri
           });
           
           console.log(`Uploaded ${fileName} to: ${audioUrl} (${fileInfo.size} bytes)`);
@@ -206,23 +231,38 @@ export default function RecordClipsScreen() {
       
       let result;
       if (USE_REAL_API) {
+        // Prepare the request body
+        const requestBody = {
+          vox_key_id: voxKey.id,
+          user_id: user.id,
+          phrase_data: phrase,
+          audio_files: uploadedFiles,
+          storage_folder: folderName
+        };
+        
+        console.log('API Request body:', JSON.stringify(requestBody, null, 2));
+        
         // TODO: Replace with your actual API endpoint
-        const apiResponse = await fetch('https://vocera.herokuapp.com/calibrate', {
+        const apiResponse = await fetch('https://vocera-b8ea46a65e5a.herokuapp.com/calibrate', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            vox_key_id: voxKey.id,
-            user_id: user.id,
-            phrase_data: phrase,
-            audio_files: uploadedFiles,
-            storage_folder: folderName
-          }),
+          body: JSON.stringify(requestBody),
         });
 
         if (!apiResponse.ok) {
-          throw new Error(`API request failed: ${apiResponse.status}`);
+          // Try to get error details from response
+          let errorDetails = '';
+          try {
+            const errorData = await apiResponse.json();
+            errorDetails = JSON.stringify(errorData);
+            console.error('API Error Response:', errorDetails);
+          } catch (e) {
+            errorDetails = await apiResponse.text();
+            console.error('API Error Text:', errorDetails);
+          }
+          throw new Error(`API request failed: ${apiResponse.status} - ${errorDetails}`);
         }
 
         result = await apiResponse.json();
@@ -354,10 +394,11 @@ export default function RecordClipsScreen() {
             </View>
           )}
           
+          {/* MODIFIED PRESSABLE */}
           <Pressable
             onPressIn={handleStartRecording}
             onPressOut={handleStopRecording}
-            disabled={isRecording || isUploading || currentClipIndex >= totalClips || isLoadingPhrase || !currentPhrase}
+            disabled={isUploading || isProcessing || currentClipIndex >= totalClips || isLoadingPhrase || !currentPhrase}
             style={({ pressed }) => [
               styles.pressableContainer,
               pressed && styles.pressed,
@@ -377,8 +418,11 @@ export default function RecordClipsScreen() {
           </Pressable>
         </View>
 
+        {/* MODIFIED INSTRUCTION TEXT */}
         <Text style={styles.instructionText}>
-          {currentClipIndex >= totalClips 
+          {isProcessing
+            ? 'Processing recordings...'
+            : currentClipIndex >= totalClips 
             ? 'All clips recorded! Uploading...' 
             : 'Press and hold to record'}
         </Text>

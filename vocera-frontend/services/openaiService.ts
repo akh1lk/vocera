@@ -1,4 +1,4 @@
-import axios, { AxiosInstance, AxiosResponse } from 'axios';
+import * as FileSystem from 'expo-file-system';
 
 export interface WhisperResponse {
   text: string;
@@ -12,20 +12,12 @@ export interface WhisperError {
 }
 
 class OpenAIService {
-  private client: AxiosInstance;
   private apiKey: string;
+  private openAIEndpoint: string;
 
   constructor() {
     this.apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY || '';
-    
-    this.client = axios.create({
-      baseURL: 'https://api.openai.com/v1',
-      timeout: 60000, // 60 seconds for audio processing
-      headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
-        'Content-Type': 'multipart/form-data',
-      },
-    });
+    this.openAIEndpoint = 'https://api.openai.com/v1/audio/transcriptions';
   }
 
   // Check if API is properly configured
@@ -40,40 +32,63 @@ class OpenAIService {
         throw new Error('OpenAI API key not configured');
       }
 
-      // Convert audio file to blob-like object for FormData
-      const audioBlob = {
-        uri: audioUri,
-        type: 'audio/wav',
-        name: 'audio.wav',
-      };
+      console.log('Starting Whisper transcription for:', audioUri);
 
-      // Create FormData
-      const formData = new FormData();
-      formData.append('file', audioBlob as any);
-      formData.append('model', 'whisper-1');
-      formData.append('response_format', 'text');
+      // Check if file exists and get info
+      const fileInfo = await FileSystem.getInfoAsync(audioUri);
+      console.log('Audio file info:', fileInfo);
+      
+      if (!fileInfo.exists) {
+        throw new Error('Audio file does not exist');
+      }
 
-      // Make the API call
-      const response: AxiosResponse<WhisperResponse> = await this.client.post(
-        '/audio/transcriptions',
-        formData
+      console.log('File size:', fileInfo.size, 'bytes');
+
+      // Try different audio formats - expo-audio might produce different formats
+      let mimeType = 'audio/wav';
+      
+      // Check the file extension or try common formats
+      if (audioUri.includes('.m4a') || audioUri.includes('.aac')) {
+        mimeType = 'audio/mp4';
+      } else if (audioUri.includes('.mp3')) {
+        mimeType = 'audio/mpeg';
+      } else if (audioUri.includes('.wav')) {
+        mimeType = 'audio/wav';
+      }
+
+      console.log('Using MIME type:', mimeType);
+
+      const response = await FileSystem.uploadAsync(
+        this.openAIEndpoint,
+        audioUri,
+        {
+          headers: {
+            Authorization: `Bearer ${this.apiKey}`,
+          },
+          httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          fieldName: 'file',
+          mimeType: mimeType,
+          parameters: {
+            model: 'whisper-1',
+            response_format: 'text',
+          },
+        }
       );
 
-      // Handle both string and object responses
-      if (typeof response.data === 'string') {
-        return response.data;
-      } else if (response.data && typeof response.data.text === 'string') {
-        return response.data.text;
+      console.log('Whisper API response status:', response.status);
+      console.log('Whisper API response body:', response.body);
+
+      if (response.status === 200) {
+        return response.body;
       } else {
-        throw new Error('Invalid response format from OpenAI Whisper');
+        throw new Error(`OpenAI API Error: ${response.status} - ${response.body}`);
       }
 
     } catch (error: any) {
       console.error('OpenAI Whisper transcription error:', error);
-      
-      if (error.response?.data?.error) {
-        throw new Error(`OpenAI API Error: ${error.response.data.error.message}`);
-      } else if (error.message) {
+
+      if (error.message) {
         throw new Error(`Transcription failed: ${error.message}`);
       } else {
         throw new Error('Failed to transcribe audio');
