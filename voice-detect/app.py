@@ -108,13 +108,12 @@ def verify():
         is_match = compare_transcriptions(transcribed_text, EXPECTED_TRANSCRIPTION)
         if not is_match:
             return jsonify(
-            {
-                "prediction": "deepfake",
-                "confidence": -1,
-                "details": {},
-            }
-        )
-
+                {
+                    "prediction": "deepfake",
+                    "confidence": -1,
+                    "details": {},
+                }
+            )
 
     except Exception as e:
         print(f"\n⚠️  WARNING: Could not perform textual check. Reason: {e}\n")
@@ -158,12 +157,12 @@ def verify():
         opensmile_threshold = (
             OPEN_SMILE_THRESHOLD_MULTIPLIER * baseline_avg_euclidean_dist
         )
-        opensmile_score = 100 * (1 - (avg_os_distance / opensmile_threshold))
+        opensmile_score = 100 - (100 * (1 - (avg_os_distance / opensmile_threshold)))
 
         # --- Final Prediction ---
         # The final confidence is now just the opensmile_score.
         # The prediction is based on whether the confidence is above 50.
-        prediction = "authentic" if opensmile_score >= 50 else "deepfake"
+        prediction = True if opensmile_score >= 50 else False
 
         return jsonify(
             {
