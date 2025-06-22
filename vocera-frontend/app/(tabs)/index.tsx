@@ -6,7 +6,8 @@ import {
   Alert,
   SafeAreaView,
   TouchableOpacity,
-  Dimensions
+  Dimensions,
+  TextInput
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, {
@@ -81,11 +82,15 @@ export default function HomeScreen() {
     transcript: string;
   } | null>(null);
   const [isAnimated, setIsAnimated] = useState(false);
+  const [showNameInput, setShowNameInput] = useState(false);
+  const [liveTranscript, setLiveTranscript] = useState('');
 
   // Animation values
   const logoTranslateY = useSharedValue(0);
   const logoScale = useSharedValue(1);
   const fadeOutAnimation = useSharedValue(1);
+  const middleContentOpacity = useSharedValue(1);
+  const nameInputOpacity = useSharedValue(0);
 
   // Ripple animation values
   const outerRippleScale = useSharedValue(1);
@@ -149,6 +154,15 @@ export default function HomeScreen() {
         // Set animated state after animation starts
         setTimeout(() => {
           runOnJS(setIsAnimated)(true);
+          runOnJS(setShowNameInput)(true);
+          
+          // Fade out the middle ripple circles content
+          middleContentOpacity.value = withTiming(0, { duration: 800 });
+          
+          // Fade in the name input after logo finishes moving (2000ms + small delay)
+          setTimeout(() => {
+            nameInputOpacity.value = withTiming(1, { duration: 600, easing: Easing.out(Easing.quad) });
+          }, 2100); // Wait for logo animation to complete
         }, 100);
       }, 600); // wait for fade to finish
     }, 700);
@@ -165,7 +179,12 @@ export default function HomeScreen() {
       easing: Easing.out(Easing.cubic)
     });
     fadeOutAnimation.value = withTiming(1, { duration: 800 });
+    middleContentOpacity.value = withTiming(1, { duration: 800 });
+    nameInputOpacity.value = withTiming(0, { duration: 400 });
     setIsAnimated(false);
+    setShowNameInput(false);
+    setLiveTranscript('');
+    setCurrentTranscript('');
   };
 
   // Animated styles
@@ -179,6 +198,14 @@ export default function HomeScreen() {
   // Add fade out to all text except the animated button
   const animatedFadeOutStyle = useAnimatedStyle(() => ({
     opacity: fadeOutAnimation.value,
+  }));
+
+  const animatedMiddleContentStyle = useAnimatedStyle(() => ({
+    opacity: middleContentOpacity.value,
+  }));
+
+  const animatedNameInputStyle = useAnimatedStyle(() => ({
+    opacity: nameInputOpacity.value,
   }));
 
   const animatedOuterStyle = useAnimatedStyle(() => ({
@@ -221,7 +248,8 @@ export default function HomeScreen() {
     }
 
     setNameError('');
-    setCurrentStep('ready');
+    // Store the name and continue with verification process
+    console.log('Name stored:', trimmedName);
   };
 
   const handleRecordingStart = () => {
@@ -278,6 +306,8 @@ export default function HomeScreen() {
     setNameError('');
     setVerificationResult(null);
     setCurrentTranscript('');
+    setLiveTranscript('');
+    setShowNameInput(false);
   };
 
   const handleSaveCall = () => {
@@ -323,22 +353,40 @@ export default function HomeScreen() {
                   <TouchableOpacity onPress={handleLogoPress} activeOpacity={0.8}>
                     <View style={styles.circleStack}>
                       {/* Outer Circle */}
-                      <Animated.View style={[styles.outerCircle, styles.absoluteCircle, animatedOuterStyle]} />
+                      <Animated.View style={[styles.outerCircle, styles.absoluteCircle, animatedOuterStyle, animatedMiddleContentStyle]} />
 
                       {/* Middle Circle */}
-                      <Animated.View style={[styles.middleCircle, styles.absoluteCircle, animatedMiddleStyle]} />
+                      <Animated.View style={[styles.middleCircle, styles.absoluteCircle, animatedMiddleStyle, animatedMiddleContentStyle]} />
 
                       {/* Inner Circle */}
                       <Animated.View style={[styles.innerCircle, styles.absoluteCircle, animatedInnerStyle]}>
-                        <View style={styles.waveContainer}>
+                        <Animated.View style={[styles.waveContainer, animatedMiddleContentStyle]}>
                           <WaveAnimation isActive={true} />
-                        </View>
+                        </Animated.View>
                         <Text style={styles.logoV}>V</Text>
                       </Animated.View>
                     </View>
                   </TouchableOpacity>
                 </Animated.View>
               </>
+            )}
+
+            {/* Simple Name Input - appears right below the V button after transition */}
+            {showNameInput && (
+              <Animated.View style={[styles.nameInputBelowButton, animatedNameInputStyle]}>
+                <TextInput
+                  style={styles.nameTextInput}
+                  value={callerName}
+                  onChangeText={setCallerName}
+                  placeholder="Enter name of caller"
+                  placeholderTextColor="#999"
+                  autoFocus
+                  autoCapitalize="words"
+                  returnKeyType="done"
+                  onSubmitEditing={handleNameSubmit}
+                />
+                {nameError ? <Text style={styles.nameError}>{nameError}</Text> : null}
+              </Animated.View>
             )}
 
           <Animated.View style={[styles.trustContainer, animatedFadeOutStyle]}>
@@ -512,7 +560,7 @@ const styles = StyleSheet.create({
   },
   logoContainer: {
     alignItems: 'center',
-    marginVertical: 40,
+    marginVertical: 20,
   },
   circleStack: {
     width: 260,
@@ -667,5 +715,36 @@ const styles = StyleSheet.create({
   },
   anotherButton: {
     marginBottom: 8,
+  },
+  simpleNameInput: {
+    marginTop: 20,
+    alignItems: 'center',
+  },
+  nameInputBelowButton: {
+    marginTop: -350,
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  nameTextInput: {
+    backgroundColor: '#E8E8E8',
+    borderRadius: 25,
+    paddingHorizontal: 20,
+    paddingVertical: 15,
+    fontSize: 16,
+    color: '#333',
+    borderWidth: 0,
+    minWidth: 280,
+    textAlign: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  nameError: {
+    color: '#FF3B30',
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: 'center',
   },
 });
