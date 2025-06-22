@@ -141,23 +141,9 @@ def download_multiple_files_from_urls(file_urls):
     try:
         for i, url in enumerate(file_urls):
             try:
-                # Detect file extension from URL
-                if url.lower().endswith(".wav"):
-                    file_suffix = ".wav"
-                    needs_conversion = False
-                elif url.lower().endswith(".m4a"):
-                    file_suffix = ".m4a"
-                    needs_conversion = True
-                elif url.lower().endswith(".mp3"):
-                    file_suffix = ".mp3"
-                    needs_conversion = True
-                else:
-                    # Default to m4a if unknown
-                    file_suffix = ".m4a"
-                    needs_conversion = True
-
+                # Download to a temporary file first, then detect format from content
                 temp_file = tempfile.NamedTemporaryFile(
-                    delete=False, suffix=file_suffix, mode="wb"
+                    delete=False, suffix=".tmp", mode="wb"
                 )
                 response = requests.get(url, stream=True)
                 response.raise_for_status()
@@ -170,7 +156,29 @@ def download_multiple_files_from_urls(file_urls):
                 temp_file.close()
 
                 logger.info(
-                    f"Successfully downloaded file {i+1}/{len(file_urls)}, {bytes_written} bytes, format: {file_suffix}"
+                    f"Successfully downloaded file {i+1}/{len(file_urls)}, {bytes_written} bytes"
+                )
+
+                # Detect actual format from file content
+                with open(temp_file.name, "rb") as f:
+                    header = f.read(16)
+
+                if b"ftyp" in header and b"M4A" in header:
+                    detected_format = "m4a"
+                    needs_conversion = True
+                elif header.startswith(b"RIFF") and b"WAVE" in header:
+                    detected_format = "wav"
+                    needs_conversion = False
+                elif header.startswith(b"\xff\xfb") or header.startswith(b"ID3"):
+                    detected_format = "mp3"
+                    needs_conversion = True
+                else:
+                    # Unknown format, try conversion anyway
+                    detected_format = "unknown"
+                    needs_conversion = True
+
+                logger.info(
+                    f"File {i+1} detected format: {detected_format}, needs_conversion: {needs_conversion}"
                 )
 
                 if needs_conversion:
@@ -188,8 +196,10 @@ def download_multiple_files_from_urls(file_urls):
                             os.remove(temp_file.name)
                         failed_downloads.append(url)
                 else:
-                    # Already WAV, use as-is
-                    temp_files.append(temp_file.name)
+                    # Already WAV, rename with proper extension
+                    wav_path = temp_file.name + ".wav"
+                    os.rename(temp_file.name, wav_path)
+                    temp_files.append(wav_path)
                     logger.info(f"File {i+1} is already WAV format, using directly")
 
             except requests.exceptions.RequestException as e:
