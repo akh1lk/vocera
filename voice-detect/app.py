@@ -141,8 +141,23 @@ def download_multiple_files_from_urls(file_urls):
     try:
         for i, url in enumerate(file_urls):
             try:
+                # Detect file extension from URL
+                if url.lower().endswith(".wav"):
+                    file_suffix = ".wav"
+                    needs_conversion = False
+                elif url.lower().endswith(".m4a"):
+                    file_suffix = ".m4a"
+                    needs_conversion = True
+                elif url.lower().endswith(".mp3"):
+                    file_suffix = ".mp3"
+                    needs_conversion = True
+                else:
+                    # Default to m4a if unknown
+                    file_suffix = ".m4a"
+                    needs_conversion = True
+
                 temp_file = tempfile.NamedTemporaryFile(
-                    delete=False, suffix=".m4a", mode="wb"
+                    delete=False, suffix=file_suffix, mode="wb"
                 )
                 response = requests.get(url, stream=True)
                 response.raise_for_status()
@@ -155,22 +170,27 @@ def download_multiple_files_from_urls(file_urls):
                 temp_file.close()
 
                 logger.info(
-                    f"Successfully downloaded file {i+1}/{len(file_urls)}, {bytes_written} bytes"
+                    f"Successfully downloaded file {i+1}/{len(file_urls)}, {bytes_written} bytes, format: {file_suffix}"
                 )
 
-                # Convert to WAV format
-                wav_path = convert_audio_to_wav(temp_file.name)
-                if wav_path:
-                    # Clean up original file and use converted WAV
-                    os.remove(temp_file.name)
-                    temp_files.append(wav_path)
-                    logger.info(f"File {i+1} converted to WAV successfully")
-                else:
-                    logger.error(f"Failed to convert file {i+1} to WAV")
-                    # Clean up the failed file
-                    if os.path.exists(temp_file.name):
+                if needs_conversion:
+                    # Convert to WAV format
+                    wav_path = convert_audio_to_wav(temp_file.name)
+                    if wav_path:
+                        # Clean up original file and use converted WAV
                         os.remove(temp_file.name)
-                    failed_downloads.append(url)
+                        temp_files.append(wav_path)
+                        logger.info(f"File {i+1} converted to WAV successfully")
+                    else:
+                        logger.error(f"Failed to convert file {i+1} to WAV")
+                        # Clean up the failed file
+                        if os.path.exists(temp_file.name):
+                            os.remove(temp_file.name)
+                        failed_downloads.append(url)
+                else:
+                    # Already WAV, use as-is
+                    temp_files.append(temp_file.name)
+                    logger.info(f"File {i+1} is already WAV format, using directly")
 
             except requests.exceptions.RequestException as e:
                 logger.error(f"Error downloading file {i+1} from URL {url}: {e}")
