@@ -71,7 +71,11 @@ def convert_with_sox(input_path, output_path):
         # Use SoX to convert M4A to WAV with error tolerance
         cmd = [
             "sox",
+            "-t",
+            "m4a",  # Explicitly specify input format as M4A
             input_path,
+            "-t",
+            "wav",  # Explicitly specify output format as WAV
             output_path,
             "rate",
             "16000",  # Resample to 16kHz
@@ -90,7 +94,10 @@ def convert_with_sox(input_path, output_path):
             return True
         else:
             logger.warning(f"SoX conversion failed. Return code: {result.returncode}")
-            logger.warning(f"SoX stderr: {result.stderr}")
+            if result.stderr:
+                logger.warning(f"SoX stderr: {result.stderr}")
+            if result.stdout:
+                logger.warning(f"SoX stdout: {result.stdout}")
             return False
 
     except subprocess.TimeoutExpired:
