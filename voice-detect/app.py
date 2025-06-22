@@ -276,24 +276,25 @@ def verify():
             os.remove(reference_audio_path)
 
 
-@app.route("/get_profile/<user_id>", methods=["GET"])
-def get_profile(user_id):
-    """Retrieves a user's profile from the database for debugging."""
-    profile = db.get_profile(user_id)
-    if not profile:
-        logger.error(f"ln 284 error could not find {user_id}")
-        return jsonify({"error": "User profile not found"}), 404
+# NOTE lowkey i don't think we need this?
+# @app.route("/get_profile/<user_id>", methods=["GET"])
+# def get_profile(user_id):
+#     """Retrieves a user's profile from the database for debugging."""
+#     profile = db.get_profile(user_id)
+#     if not profile:
+#         logger.error(f"ln 284 error could not find {user_id}")
+#         return jsonify({"error": "User profile not found"}), 404
 
-    # Create a serializable copy of the profile data
-    profile_copy = {
-        "user_id": profile["user_id"],
-        "opensmile_vectors": [v.tolist() for v in profile["opensmile_vectors"]],
-        "avg_euclidean_distance": profile["avg_euclidean_distance"],
-        "feature_normalization": profile.get("feature_normalization", "None"),
-        "has_scaler": "scaler" in profile,
-    }
+#     # Create a serializable copy of the profile data
+#     profile_copy = {
+#         "user_id": profile["user_id"],
+#         "opensmile_vectors": [v.tolist() for v in profile["opensmile_vectors"]],
+#         "avg_euclidean_distance": profile["avg_euclidean_distance"],
+#         "feature_normalization": profile.get("feature_normalization", "None"),
+#         "has_scaler": "scaler" in profile,
+#     }
 
-    return jsonify(profile_copy)
+#     return jsonify(profile_copy)
 
 
 if __name__ == "__main__":
