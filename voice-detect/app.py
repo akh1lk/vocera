@@ -56,8 +56,8 @@ OPEN_SMILE_THRESHOLD_MULTIPLIER = 1.8
 
 def convert_audio_to_wav(input_path):
     """
-    Converts M4A audio files to WAV format using pydub with enhanced ffmpeg support.
-    Assumes all input files are M4A format (which they are in our use case).
+    Converts M4A audio files to WAV format using aggressive ffmpeg error handling.
+    Designed to handle corrupted M4A files with problematic 'chnl' metadata boxes.
 
     Args:
         input_path (str): Path to input M4A audio file
@@ -71,66 +71,65 @@ def convert_audio_to_wav(input_path):
         wav_path = wav_temp.name
         wav_temp.close()
 
-        # Strategy 1: M4A conversion with metadata handling for newer ffmpeg
+        # Strategy 1: Aggressive error handling - bypass corrupted metadata
         try:
             audio = AudioSegment.from_file(
                 input_path,
                 format="m4a",
                 parameters=[
-                    "-ignore_unknown",  # Ignore unknown metadata boxes
+                    "-err_detect",
+                    "ignore_err",  # Ignore all errors
+                    "-fflags",
+                    "+discardcorrupt",  # Discard corrupt packets
                     "-f",
-                    "mp4",  # Force mp4 container parsing
+                    "mp4",  # Force mp4 container
+                    "-strict",
+                    "experimental",  # Allow experimental features
                 ],
             )
-            # Export with standard WAV parameters
-            audio.export(
-                wav_path,
-                format="wav",
-                parameters=[
-                    "-acodec",
-                    "pcm_s16le",  # Standard WAV codec
-                    "-ar",
-                    "44100",  # Standard sample rate
-                    "-ac",
-                    "1",  # Mono audio for consistency
-                ],
+            # Export with basic parameters and lower sample rate
+            audio = audio.set_channels(1).set_frame_rate(16000)
+            audio.export(wav_path, format="wav", parameters=["-acodec", "pcm_s16le"])
+            logger.info(
+                f"Successfully converted M4A with aggressive error handling: {wav_path}"
             )
-            logger.info(f"Successfully converted M4A to WAV: {wav_path}")
             return wav_path
         except Exception as e1:
-            logger.warning(f"Enhanced M4A conversion failed: {e1}")
+            logger.warning(f"Aggressive M4A conversion failed: {e1}")
 
-        # Strategy 2: Simple M4A conversion
+        # Strategy 2: Force MP4 format instead of M4A
         try:
-            audio = AudioSegment.from_file(input_path, format="m4a")
-            # Convert to mono and standard sample rate for consistency
-            audio = audio.set_channels(1).set_frame_rate(44100)
+            audio = AudioSegment.from_file(
+                input_path,
+                format="mp4",
+                parameters=["-err_detect", "ignore_err", "-ignore_unknown"],
+            )
+            audio = audio.set_channels(1).set_frame_rate(16000)
             audio.export(wav_path, format="wav")
-            logger.info(f"Successfully converted M4A using simple method: {wav_path}")
+            logger.info(f"Successfully converted using MP4 format override: {wav_path}")
             return wav_path
         except Exception as e2:
-            logger.warning(f"Simple M4A conversion failed: {e2}")
+            logger.warning(f"MP4 format override failed: {e2}")
 
-        # Strategy 3: Force auto-detection with metadata stripping
+        # Strategy 3: Try to extract raw audio stream
         try:
-            audio = AudioSegment.from_file(input_path)
-            audio = audio.set_channels(1).set_frame_rate(44100)
-            audio.export(
-                wav_path,
-                format="wav",
+            audio = AudioSegment.from_file(
+                input_path,
                 parameters=[
-                    "-acodec",
-                    "pcm_s16le",
-                    "-map_metadata",
-                    "-1",  # Strip all metadata
+                    "-err_detect",
+                    "ignore_err",
+                    "-fflags",
+                    "+discardcorrupt+genpts",
                 ],
             )
+            audio = audio.set_channels(1).set_frame_rate(16000)
+            audio.export(wav_path, format="wav")
             logger.info(
-                f"Successfully converted using auto-detection with metadata stripping: {wav_path}"
+                f"Successfully extracted audio using raw stream method: {wav_path}"
             )
             return wav_path
         except Exception as e3:
-            logger.warning(f"Auto-detection with metadata stripping failed: {e3}")
+            logger.warning(f"Raw stream extraction failed: {e3}")
 
         # Clean up failed temp file
         if os.path.exists(wav_path):
