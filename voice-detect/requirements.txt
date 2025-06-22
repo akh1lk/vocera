@@ -5,5 +5,7 @@ opensmile
 Werkzeug
 gunicorn
 openai
-python-dotenv 
-scikit-learn 
+python-dotenv
+scikit-learn
+requests
+speechbrain

@@ -5,6 +5,23 @@ from scipy.spatial.distance import euclidean
 from itertools import combinations
 import tempfile
 from sklearn.preprocessing import StandardScaler
+import requests
+from dotenv import load_dotenv
+
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Set up file logging
+file_handler = logging.FileHandler("voice_detect.log")
+file_handler.setLevel(logging.INFO)
+file_formatter = logging.Formatter(
+    "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+file_handler.setFormatter(file_formatter)
+logger.addHandler(file_handler)
+
 
 from feature_extractor import (
     extract_opensmile_features,
@@ -12,16 +29,44 @@ from feature_extractor import (
     serialize_scaler,
     deserialize_scaler,
 )
-from database import FileDatabase
+from database import SupabaseDatabase
+from speaker_verification import verify_speaker_from_data
+
+from supabase import create_client, Client
+
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 
 app = Flask(__name__)
 
-# In-memory database
-db = FileDatabase()
+# Initialize Supabase client
+supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
+
+# Use SupabaseDatabase instead of FileDatabase
+db = SupabaseDatabase(supabase_client=supabase)
 
 # Tunable parameters for scoring thresholds
 # Note: These may need adjustment after normalization
 OPEN_SMILE_THRESHOLD_MULTIPLIER = 1.8
+
+
+def download_audio_from_url(audio_url):
+    """
+    Downloads an audio file from a URL and saves it to a temporary local file.
+    """
+    try:
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        response = requests.get(audio_url, stream=True)
+        response.raise_for_status()
+        for chunk in response.iter_content(chunk_size=8192):
+            temp_file.write(chunk)
+        temp_file.close()
+        return temp_file.name
+    except requests.exceptions.RequestException as e:
+        print(f"Error: Failed to download file from URL. {e}")
+        return None
 
 
 @app.route("/calibrate", methods=["POST"])
@@ -35,6 +80,7 @@ def calibrate():
 
     user_id = request.form.get("user_id")
     files = request.files.getlist("files")
+    training_audio_url = request.form.get("training_audio_url")  # Get the new URL field
 
     if len(files) != 10:
         return jsonify({"error": "10 audio files are required for calibration"}), 400
@@ -79,6 +125,7 @@ def calibrate():
                 "avg_euclidean_distance": avg_euclidean_distance,
                 "scaler": serialized_scaler,  # Store scaler parameters
                 "feature_normalization": "StandardScaler",  # Track normalization method
+                "training_audio_url": training_audio_url,  # Store the URL
             }
         )
 
@@ -126,6 +173,7 @@ def verify():
         return jsonify({"error": "1 audio file is required for verification"}), 400
 
     temp_file_path = None
+    reference_audio_path = None
     try:
         # Save file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
@@ -133,21 +181,30 @@ def verify():
             temp_file_path = temp_file.name
 
         # Fetch user profile from the database
-        profile = db.get_profile(user_id)
+        profile = db.get_profile("63da7120-0f9a-4087-a5bb-fefa574115f6")
         if not profile:
+            logger.error(f"ln 186 error could not find {user_id}")
             return jsonify({"error": "User profile not found"}), 404
 
-        # Check if profile has scaler (backward compatibility)
-        if "scaler" not in profile:
-            return (
-                jsonify(
-                    {
-                        "error": "User profile missing normalization scaler. Please re-calibrate this user."
-                    }
-                ),
-                400,
-            )
+        # --- Speaker Verification (Primary) ---
+        speaker_verification_result = ("model_not_run", (False, 0.0))
+        training_url = profile.get("training_audio_url")
 
+        if training_url:
+            reference_audio_path = download_audio_from_url(training_url)
+            if reference_audio_path:
+                # Placeholder for your actual function call
+                # speaker_verification_result = verify_speaker_from_data(reference_audio_path, temp_file_path)
+                print(
+                    f"Calling speaker verification with: {reference_audio_path} and {temp_file_path}"
+                )
+            else:
+                print(
+                    "Warning: Failed to download reference audio. Skipping speaker verification."
+                )
+                speaker_verification_result = ("download_failed", (False, 0.0))
+
+        # --- openSMILE Verification (Secondary) ---
         baseline_os_vectors = profile["opensmile_vectors"]
         baseline_avg_euclidean_dist = profile["avg_euclidean_distance"]
 
@@ -190,6 +247,7 @@ def verify():
         opensmile_score = deepfake_confidence
 
         # --- Final Prediction ---
+        # Prediction is True if authenticity score is >= 50
         prediction = True if opensmile_score >= 50 else False
 
         return jsonify(
@@ -197,8 +255,14 @@ def verify():
                 "prediction": prediction,
                 "confidence": opensmile_score,
                 "details": {
+                    "opensmile_score": opensmile_score,
                     "baseline_avg_euclidean_dist": baseline_avg_euclidean_dist,
                     "avg_verification_euclidean_distance": avg_os_distance,
+                    "normalization": profile.get(
+                        "feature_normalization", "StandardScaler"
+                    ),
+                    "speaker_verification_model": speaker_verification_result[0],
+                    "speaker_verification_result": speaker_verification_result[1],
                 },
             }
         )
@@ -208,6 +272,8 @@ def verify():
     finally:
         if temp_file_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
+        if reference_audio_path and os.path.exists(reference_audio_path):
+            os.remove(reference_audio_path)
 
 
 @app.route("/get_profile/<user_id>", methods=["GET"])
@@ -215,6 +281,7 @@ def get_profile(user_id):
     """Retrieves a user's profile from the database for debugging."""
     profile = db.get_profile(user_id)
     if not profile:
+        logger.error(f"ln 284 error could not find {user_id}")
         return jsonify({"error": "User profile not found"}), 404
 
     # Create a serializable copy of the profile data
