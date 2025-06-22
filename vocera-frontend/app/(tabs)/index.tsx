@@ -3,29 +3,24 @@ import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
   Alert,
   SafeAreaView,
   TouchableOpacity,
-  Image,
+  Dimensions
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Animated, { 
-  FadeInUp, 
-  FadeIn, 
-  SlideInRight, 
-  SlideInLeft, 
-  ZoomIn, 
-  useSharedValue, 
-  useAnimatedStyle, 
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
   withSpring,
   withTiming,
   withSequence,
   withRepeat,
-  Easing
+  Easing,
+  runOnJS
 } from 'react-native-reanimated';
 import Svg, { Path } from 'react-native-svg';
-import { Mic, Lock } from 'lucide-react-native';
+import { Mic, Lock, X } from 'lucide-react-native';
 import { VoxButton } from '../../components/VoxButton';
 import { NameInput } from '../../components/NameInput';
 import { InstructionsPanel } from '../../components/InstructionsPanel';
@@ -44,7 +39,7 @@ const WaveAnimation = ({ isActive }: { isActive: boolean }) => {
   useEffect(() => {
     if (isActive) {
       waveValue.value = withRepeat(
-        withTiming(30, { 
+        withTiming(30, {
           duration: 1200,
           easing: Easing.linear
         }),
@@ -85,35 +80,34 @@ export default function HomeScreen() {
     confidence: number;
     transcript: string;
   } | null>(null);
+  const [isAnimated, setIsAnimated] = useState(false);
+
+  // Animation values
+  const logoTranslateY = useSharedValue(0);
+  const logoScale = useSharedValue(1);
+  const fadeOutAnimation = useSharedValue(1);
 
   // Ripple animation values
-  const rippleScale = useSharedValue(1);
-  const rippleOpacity = useSharedValue(1);
   const outerRippleScale = useSharedValue(1);
   const middleRippleScale = useSharedValue(1);
   const innerRippleScale = useSharedValue(1);
   const outerRippleOpacity = useSharedValue(1);
-  const middleRippleOpacity = useSharedValue(1);
-  const innerRippleOpacity = useSharedValue(1);
+  const middleRippleOpacity = useSharedValue(0.7);
 
-  const { 
-    user, 
-    currentTranscript, 
+  const {
+    user,
+    currentTranscript,
     setCurrentTranscript,
-    addSavedCall 
+    addSavedCall
   } = useVoceraStore();
 
   const handleLogoPress = () => {
-    // Create wave effect - each circle starts at a different time like ripples in a pond
-    // Inner black circle stays at full opacity, only outer circles animate
-    
-    // Inner circle only scales (no opacity change)
+    // First do the ripple effect
     innerRippleScale.value = withSequence(
       withTiming(1.1, { duration: 300 }),
       withTiming(1, { duration: 400 })
     );
-    
-    // Middle circle starts slightly after - becomes more visible
+
     setTimeout(() => {
       middleRippleScale.value = withSequence(
         withTiming(1.2, { duration: 400 }),
@@ -124,8 +118,7 @@ export default function HomeScreen() {
         withTiming(0.7, { duration: 500 })
       );
     }, 100);
-    
-    // Outer circle starts last - becomes more visible
+
     setTimeout(() => {
       outerRippleScale.value = withSequence(
         withTiming(1.15, { duration: 500 }),
@@ -136,11 +129,56 @@ export default function HomeScreen() {
         withTiming(0.9, { duration: 600 })
       );
     }, 200);
+
+    // After ripple completes, fade out text, then move logo
+    setTimeout(() => {
+      // Fade out header and trusted text (but don't remove from layout)
+      fadeOutAnimation.value = withTiming(0, { duration: 600 }); // fade earlier & faster
+
+      // Move logo to top and shrink AFTER fade completes
+      setTimeout(() => {
+        logoTranslateY.value = withTiming(-320, { // move not as high
+          duration: 1600,
+          easing: Easing.out(Easing.cubic)
+        });
+        logoScale.value = withTiming(0.4, {
+          duration: 2000,
+          easing: Easing.out(Easing.cubic)
+        });
+
+        // Set animated state after animation starts
+        setTimeout(() => {
+          runOnJS(setIsAnimated)(true);
+        }, 100);
+      }, 600); // wait for fade to finish
+    }, 700);
   };
 
+  const handleResetAnimation = () => {
+    // Reset all animations with smooth easing
+    logoTranslateY.value = withTiming(0, {
+      duration: 1000,
+      easing: Easing.out(Easing.cubic)
+    });
+    logoScale.value = withTiming(1, {
+      duration: 1000,
+      easing: Easing.out(Easing.cubic)
+    });
+    fadeOutAnimation.value = withTiming(1, { duration: 800 });
+    setIsAnimated(false);
+  };
+
+  // Animated styles
   const animatedLogoStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: rippleScale.value }],
-    opacity: rippleOpacity.value,
+    transform: [
+      { translateY: logoTranslateY.value },
+      { scale: logoScale.value }
+    ],
+  }));
+
+  // Add fade out to all text except the animated button
+  const animatedFadeOutStyle = useAnimatedStyle(() => ({
+    opacity: fadeOutAnimation.value,
   }));
 
   const animatedOuterStyle = useAnimatedStyle(() => ({
@@ -155,7 +193,6 @@ export default function HomeScreen() {
 
   const animatedInnerStyle = useAnimatedStyle(() => ({
     transform: [{ scale: innerRippleScale.value }],
-    // Removed opacity - inner circle stays 100% opaque
   }));
 
   const handleStartVerification = () => {
@@ -172,17 +209,17 @@ export default function HomeScreen() {
 
   const handleNameSubmit = () => {
     const trimmedName = callerName.trim();
-    
+
     if (!trimmedName) {
       setNameError('Please enter the caller\'s name');
       return;
     }
-    
+
     if (trimmedName.length < 2) {
       setNameError('Name must be at least 2 characters');
       return;
     }
-    
+
     setNameError('');
     setCurrentStep('ready');
   };
@@ -194,7 +231,7 @@ export default function HomeScreen() {
 
   const handleRecordingComplete = async (result: RecordingResult) => {
     setCurrentStep('processing');
-    
+
     try {
       const response = await voceraAPI.verifyVoxKey(
         {
@@ -205,11 +242,11 @@ export default function HomeScreen() {
         callerName,
         user?.id
       );
-      
+
       setVerificationResult(response);
       setCurrentTranscript(response.transcript);
       setCurrentStep('result');
-      
+
       // Save call if verified
       if (response.match) {
         addSavedCall({
@@ -222,7 +259,7 @@ export default function HomeScreen() {
           verified: true,
         });
       }
-      
+
     } catch (error) {
       console.error('Verification error:', error);
       Alert.alert('Error', 'Failed to verify voice. Please try again.');
@@ -235,6 +272,7 @@ export default function HomeScreen() {
   };
 
   const handleStartOver = () => {
+    handleResetAnimation();
     setCurrentStep('initial');
     setCallerName('');
     setNameError('');
@@ -247,28 +285,6 @@ export default function HomeScreen() {
     handleStartOver();
   };
 
-  const getFirstName = (fullName: string): string => {
-    return fullName.trim().split(' ')[0];
-  };
-
-  const getInstructionStep = (): 'waiting' | 'ready' | 'recording' | 'processing' | 'complete' => {
-    switch (currentStep) {
-      case 'initial':
-      case 'name-entry':
-        return 'waiting';
-      case 'ready':
-        return 'ready';
-      case 'recording':
-        return 'recording';
-      case 'processing':
-        return 'processing';
-      case 'result':
-        return 'complete';
-      default:
-        return 'waiting';
-    }
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient
@@ -276,161 +292,167 @@ export default function HomeScreen() {
         locations={[0, 0.3, 0.7, 1]}
         style={styles.gradientContainer}
       >
-        <ScrollView 
-          style={styles.scrollView} 
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-        >
-        {/* Header */}
-        <Animated.View entering={FadeInUp.delay(100)} style={styles.header}>
-          <Text style={styles.title}>Vocera</Text>
-          <Text style={styles.subtitle}>Authenticate with a voice</Text>
-        </Animated.View>
+        {/* X Button - Fixed position */}
+        {isAnimated && (
+          <TouchableOpacity onPress={handleResetAnimation} style={styles.resetButton}>
+            <X size={24} color="#FF3B30" />
+          </TouchableOpacity>
+        )}
 
-        {currentStep === 'initial' && (
-          <>
-            {/* Blue Button */}
-            <Animated.View entering={FadeInUp.delay(300)} style={styles.buttonContainer}>
-              <TouchableOpacity style={styles.beginButton} onPress={handleStartVerification}>
-                <Mic size={20} color="#258bb6" />
-                <Text style={styles.beginButtonText}>Tap to begin voice verification</Text>
-              </TouchableOpacity>
-            </Animated.View>
+        <View style={styles.content}>
+          {/* Header - ALWAYS present, just fades */}
+          <Animated.View style={[styles.header, animatedFadeOutStyle]}>
+            <Text style={styles.title}>Vocera</Text>
+            <Text style={styles.subtitle}>Authenticate with a voice</Text>
+          </Animated.View>
 
-            {/* Circular Logo Design */}
-            <Animated.View entering={ZoomIn.delay(500)} style={styles.logoContainer}>
-              <TouchableOpacity onPress={handleLogoPress} activeOpacity={0.8}>
-                <View style={styles.circleStack}>
-                  {/* Outer Circle - Behind everything */}
-                  <Animated.View style={[styles.outerCircle, styles.absoluteCircle, animatedOuterStyle]} />
-                  
-                  {/* Middle Circle - Middle layer */}
-                  <Animated.View style={[styles.middleCircle, styles.absoluteCircle, animatedMiddleStyle]} />
-                  
-                  {/* Inner Circle - Front layer with wave animation */}
-                  <Animated.View style={[styles.innerCircle, styles.absoluteCircle, animatedInnerStyle]}>
-                    <View style={styles.waveContainer}>
-                      <WaveAnimation isActive={true} />
+          {/* Move the 'Tap to begin voice verification' text above the button */}
+          <Animated.View style={[{ alignItems: 'center', marginTop: 4, marginBottom: 0 }, animatedFadeOutStyle]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Mic size={20} color="#258bb6" style={{ marginRight: 8 }} />
+              <Text style={styles.beginButtonText}>Tap to begin voice verification</Text>
+            </View>
+          </Animated.View>
+
+          {/* Animated button container */}
+          <Animated.View style={styles.buttonContainer}>
+            {currentStep === 'initial' && (
+              <>
+                {/* Circular Logo Design - Moves and shrinks */}
+                <Animated.View style={[styles.logoContainer, animatedLogoStyle]}>
+                  <TouchableOpacity onPress={handleLogoPress} activeOpacity={0.8}>
+                    <View style={styles.circleStack}>
+                      {/* Outer Circle */}
+                      <Animated.View style={[styles.outerCircle, styles.absoluteCircle, animatedOuterStyle]} />
+
+                      {/* Middle Circle */}
+                      <Animated.View style={[styles.middleCircle, styles.absoluteCircle, animatedMiddleStyle]} />
+
+                      {/* Inner Circle */}
+                      <Animated.View style={[styles.innerCircle, styles.absoluteCircle, animatedInnerStyle]}>
+                        <View style={styles.waveContainer}>
+                          <WaveAnimation isActive={true} />
+                        </View>
+                        <Text style={styles.logoV}>V</Text>
+                      </Animated.View>
                     </View>
-                    <Text style={styles.logoV}>V</Text>
-                  </Animated.View>
-                </View>
-              </TouchableOpacity>
-            </Animated.View>
+                  </TouchableOpacity>
+                </Animated.View>
+              </>
+            )}
 
-            {/* Trusted and Secure */}
-            <Animated.View entering={FadeInUp.delay(700)} style={styles.trustContainer}>
-              <View style={styles.trustRow}>
-                <Text style={styles.trustText}>Trusted and secure </Text>
-                <Lock size={16} color="#666666" />
-              </View>
-            </Animated.View>
-          </>
-        )}
-
-        {currentStep === 'name-entry' && (
-          <Animated.View entering={SlideInRight.delay(100)}>
-            <NameInput
-              value={callerName}
-              onChangeText={setCallerName}
-              error={nameError}
-              autoFocus
-              onSubmit={handleNameSubmit}
-            />
-            <View style={styles.buttonRow}>
-              <VoxButton
-                title="Back"
-                onPress={() => setCurrentStep('initial')}
-                variant="secondary"
-                size="medium"
-                style={styles.backButton}
-              />
-              <VoxButton
-                title="Continue"
-                onPress={handleNameSubmit}
-                size="medium"
-                style={styles.continueButton}
-              />
+          <Animated.View style={[styles.trustContainer, animatedFadeOutStyle]}>
+            <View style={styles.trustRow}>
+              <Text style={styles.trustText}>Trusted and secure </Text>
+              <Lock size={16} color="#666666" />
             </View>
           </Animated.View>
-        )}
 
-        {(currentStep === 'ready' || currentStep === 'recording') && (
-          <Animated.View entering={FadeIn.delay(100)}>
-            <Recorder
-              onRecordingComplete={handleRecordingComplete}
-              onRecordingStart={handleRecordingStart}
-              onRecordingCancel={handleRecordingCancel}
-              maxDuration={10}
-            />
-            <VoxButton
-              title="Change Name"
-              onPress={() => setCurrentStep('name-entry')}
-              variant="secondary"
-              size="small"
-              style={styles.changeNameButton}
-            />
-          </Animated.View>
-        )}
-
-        {currentStep === 'processing' && (
-          <Animated.View entering={FadeIn} style={styles.processingContainer}>
-            <VoxButton
-              title="Analyzing..."
-              onPress={() => {}}
-              size="xl"
-              loading
-              disabled
-            />
-          </Animated.View>
-        )}
-
-        {(currentStep === 'recording' || currentStep === 'processing' || currentStep === 'result') && (
-          <TranscriptView
-            transcript={currentTranscript}
-            isLive={currentStep === 'recording'}
-            confidence={verificationResult?.confidence}
-          />
-        )}
-
-        {currentStep === 'result' && verificationResult && (
-          <Animated.View entering={SlideInLeft.delay(200)} style={styles.resultContainer}>
-            <View style={[
-              styles.resultCard,
-              { backgroundColor: verificationResult.match ? '#D4F4DD' : '#FFE6E6' }
-            ]}>
-              <Text style={styles.resultIcon}>
-                {verificationResult.match ? '✅' : '❌'}
-              </Text>
-              <Text style={styles.resultTitle}>
-                {verificationResult.match ? 'Verified' : 'Not Verified'}
-              </Text>
-              <Text style={styles.resultDetails}>
-                Confidence: {Math.round(verificationResult.confidence * 100)}%
-              </Text>
-              <Text style={styles.callerName}>{callerName}</Text>
-            </View>
-
-            <View style={styles.resultButtons}>
-              {verificationResult.match && (
-                <VoxButton
-                  title="Save Call"
-                  onPress={handleSaveCall}
-                  size="medium"
-                  style={styles.saveButton}
+            {/* Other steps */}
+            {currentStep === 'name-entry' && (
+              <View>
+                <NameInput
+                  value={callerName}
+                  onChangeText={setCallerName}
+                  error={nameError}
+                  autoFocus
+                  onSubmit={handleNameSubmit}
                 />
-              )}
-              <VoxButton
-                title="Verify Another"
-                onPress={handleStartOver}
-                variant="secondary"
-                size="medium"
-                style={styles.anotherButton}
+                <View style={styles.buttonRow}>
+                  <VoxButton
+                    title="Back"
+                    onPress={() => setCurrentStep('initial')}
+                    variant="secondary"
+                    size="medium"
+                    style={styles.backButton}
+                  />
+                  <VoxButton
+                    title="Continue"
+                    onPress={handleNameSubmit}
+                    size="medium"
+                    style={styles.continueButton}
+                  />
+                </View>
+              </View>
+            )}
+
+            {(currentStep === 'ready' || currentStep === 'recording') && (
+              <View>
+                <Recorder
+                  onRecordingComplete={handleRecordingComplete}
+                  onRecordingStart={handleRecordingStart}
+                  onRecordingCancel={handleRecordingCancel}
+                  maxDuration={10}
+                />
+                <VoxButton
+                  title="Change Name"
+                  onPress={() => setCurrentStep('name-entry')}
+                  variant="secondary"
+                  size="small"
+                  style={styles.changeNameButton}
+                />
+              </View>
+            )}
+
+            {currentStep === 'processing' && (
+              <View style={styles.processingContainer}>
+                <VoxButton
+                  title="Analyzing..."
+                  onPress={() => { }}
+                  size="xl"
+                  loading
+                  disabled
+                />
+              </View>
+            )}
+
+            {(currentStep === 'recording' || currentStep === 'processing' || currentStep === 'result') && (
+              <TranscriptView
+                transcript={currentTranscript}
+                isLive={currentStep === 'recording'}
+                confidence={verificationResult?.confidence}
               />
-            </View>
+            )}
+
+            {currentStep === 'result' && verificationResult && (
+              <View style={styles.resultContainer}>
+                <View style={[
+                  styles.resultCard,
+                  { backgroundColor: verificationResult.match ? '#D4F4DD' : '#FFE6E6' }
+                ]}>
+                  <Text style={styles.resultIcon}>
+                    {verificationResult.match ? '✅' : '❌'}
+                  </Text>
+                  <Text style={styles.resultTitle}>
+                    {verificationResult.match ? 'Verified' : 'Not Verified'}
+                  </Text>
+                  <Text style={styles.resultDetails}>
+                    Confidence: {Math.round(verificationResult.confidence * 100)}%
+                  </Text>
+                  <Text style={styles.callerName}>{callerName}</Text>
+                </View>
+
+                <View style={styles.resultButtons}>
+                  {verificationResult.match && (
+                    <VoxButton
+                      title="Save Call"
+                      onPress={handleSaveCall}
+                      size="medium"
+                      style={styles.saveButton}
+                    />
+                  )}
+                  <VoxButton
+                    title="Verify Another"
+                    onPress={handleStartOver}
+                    variant="secondary"
+                    size="medium"
+                    style={styles.anotherButton}
+                  />
+                </View>
+              </View>
+            )}
           </Animated.View>
-        )}
-      </ScrollView>
+        </View>
       </LinearGradient>
     </SafeAreaView>
   );
@@ -444,11 +466,8 @@ const styles = StyleSheet.create({
   gradientContainer: {
     flex: 1,
   },
-  scrollView: {
+  content: {
     flex: 1,
-  },
-  scrollContent: {
-    flexGrow: 1,
     padding: 20,
     paddingBottom: 100,
   },
@@ -470,9 +489,124 @@ const styles = StyleSheet.create({
     color: '#333333',
     fontWeight: '500',
   },
-  mainButton: {
+  buttonContainer: {
+    paddingHorizontal: 20,
+    marginVertical: 20,
+    marginBottom: 10,
+  },
+  beginButton: {
+    flexDirection: 'row',
     alignItems: 'center',
-    marginVertical: 32,
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    borderRadius: 25,
+    paddingVertical: 15,
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  beginButtonText: {
+    color: '#258bb6',
+    fontSize: 16,
+    fontWeight: '500',
+    fontFamily: 'Inter-Medium',
+  },
+  logoContainer: {
+    alignItems: 'center',
+    marginVertical: 40,
+  },
+  circleStack: {
+    width: 260,
+    height: 260,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  absoluteCircle: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outerCircle: {
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.6)',
+  },
+  middleCircle: {
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.8)',
+  },
+  innerCircle: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    backgroundColor: '#000000',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 12,
+    borderWidth: 3,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    zIndex: 10,
+  },
+  logoV: {
+    fontSize: 64,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    fontFamily: 'GeorgiaPro-CondRegular',
+    position: 'absolute',
+    zIndex: 2,
+  },
+  waveContainer: {
+    position: 'absolute',
+    zIndex: 1,
+  },
+  trustContainer: {
+    alignItems: 'center',
+    marginTop: 30,
+  },
+  trustRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  trustText: {
+    fontSize: 16,
+    color: '#666666',
+    fontFamily: 'Inter-Medium',
+  },
+  resetButton: {
+    position: 'absolute',
+    top: 60,
+    right: 20,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1000,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 5,
   },
   buttonRow: {
     flexDirection: 'row',
@@ -533,127 +667,5 @@ const styles = StyleSheet.create({
   },
   anotherButton: {
     marginBottom: 8,
-  },
-  // New styles for the updated design
-  buttonContainer: {
-    paddingHorizontal: 20,
-    marginVertical: 20,
-    marginBottom: 10, // Reduced bottom margin to bring closer to logo
-  },
-  beginButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
-    borderRadius: 25,
-    paddingVertical: 15,
-    paddingHorizontal: 20,
-    gap: 8,
-  },
-  beginButtonText: {
-    color: '#258bb6',
-    fontSize: 16,
-    fontWeight: '500',
-    fontFamily: 'Inter-Medium',
-  },
-  logoContainer: {
-    alignItems: 'center',
-    marginVertical: 40,
-  },
-  circleStack: {
-    width: 260,
-    height: 260,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  absoluteCircle: {
-    position: 'absolute',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  outerCircle: {
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)', // More white, subtle
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-  },
-  middleCircle: {
-    width: 200,
-    height: 200,
-    borderRadius: 100,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)', // Much more white
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-    shadowOpacity: 0.08,
-    shadowRadius: 16,
-    elevation: 8,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.8)',
-  },
-  innerCircle: {
-    width: 140,
-    height: 140,
-    borderRadius: 70,
-    backgroundColor: '#000000', // Pure black to match PNG logo
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 12,
-    },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 12,
-    // Enhanced inner glow effect
-    borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 0.15)',
-    zIndex: 10, // Ensure it's on top
-  },
-  logoImage: {
-    width: 90,
-    height: 90,
-  },
-  logoV: {
-    fontSize: 64,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    fontFamily: 'GeorgiaPro-CondRegular',
-    position: 'absolute',
-    zIndex: 2,
-  },
-  waveContainer: {
-    position: 'absolute',
-    zIndex: 1,
-  },
-  waveform: {
-    fontSize: 20,
-    color: '#007AFF',
-    marginTop: -5,
-  },
-  trustContainer: {
-    alignItems: 'center',
-    marginTop: 30,
-  },
-  trustRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  trustText: {
-    fontSize: 16,
-    color: '#666666',
-    fontFamily: 'Inter-Medium',
   },
 });
