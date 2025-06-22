@@ -22,6 +22,25 @@ db = FileDatabase()
 OPEN_SMILE_THRESHOLD_MULTIPLIER = 1.8
 
 
+def calculate_avg_percent_diff(v1, v2):
+    """
+    Calculates the average percent difference between two vectors,
+    handling division by zero.
+    """
+    v1 = np.array(v1)
+    v2 = np.array(v2)
+    denominator = (v1 + v2) / 2
+    
+    # Calculate percent differences, returning 0 where the denominator is 0
+    percent_diffs = np.divide(
+        np.abs(v1 - v2), 
+        denominator, 
+        out=np.zeros_like(denominator, dtype=float), 
+        where=denominator!=0
+    )
+    return np.mean(percent_diffs)
+
+
 @app.route("/calibrate", methods=["POST"])
 def calibrate():
     """
@@ -48,18 +67,18 @@ def calibrate():
         # Extract features
         opensmile_vectors = [extract_opensmile_features(f) for f in temp_files]
 
-        # Calculate average Euclidean distance for openSMILE
-        os_distances = [
-            euclidean(pair[0], pair[1]) for pair in combinations(opensmile_vectors, 2)
+        # Calculate average percent difference between feature vectors
+        percent_diffs = [
+            calculate_avg_percent_diff(pair[0], pair[1]) for pair in combinations(opensmile_vectors, 2)
         ]
-        avg_euclidean_distance = np.mean(os_distances)
+        avg_percent_difference = np.mean(percent_diffs)
 
-        # Store in the in-memory database
+        # Store in the database
         db.upsert_profile(
             {
                 "user_id": user_id,
                 "opensmile_vectors": opensmile_vectors,
-                "avg_euclidean_distance": avg_euclidean_distance,
+                "avg_percent_difference": avg_percent_difference,
             }
         )
 
@@ -129,38 +148,35 @@ def verify():
             files[0].save(temp_file)
             temp_file_path = temp_file.name
 
-        # Fetch user profile from the in-memory database
+        # Fetch user profile from the database
         profile = db.get_profile(user_id)
         if not profile:
             return jsonify({"error": "User profile not found"}), 404
 
         baseline_os_vectors = profile["opensmile_vectors"]
-        baseline_avg_euclidean_dist = profile["avg_euclidean_distance"]
+        baseline_avg_percent_diff = profile["avg_percent_difference"]
 
         # Extract features from verification file
         verify_os_vector = extract_opensmile_features(temp_file_path)
 
         # --- openSMILE Verification ---
-        # Calculate the Euclidean distance between the verification vector and each baseline vector.
-        # A smaller distance signifies a closer match.
-        os_distances = [euclidean(verify_os_vector, v) for v in baseline_os_vectors]
-        avg_os_distance = np.mean(os_distances)
+        # Calculate the average percent difference between the verification vector and each baseline vector.
+        percent_diffs = [calculate_avg_percent_diff(verify_os_vector, v) for v in baseline_os_vectors]
+        avg_verification_percent_diff = np.mean(percent_diffs)
 
         # --- Scoring Logic ---
-        # Convert raw distance values into an intuitive score. A score of 100
-        # is a perfect match. A score becomes negative if the verification distance is
-        # significantly larger than the user's typical baseline distance, correctly
-        # penalizing a likely mismatch.
-
-        # openSMILE Scoring:
-        # The threshold uses a tunable multiplier on the user's baseline distance.
+        # This logic remains the same, but now uses the normalized percent difference.
         opensmile_threshold = (
-            OPEN_SMILE_THRESHOLD_MULTIPLIER * baseline_avg_euclidean_dist
+            OPEN_SMILE_THRESHOLD_MULTIPLIER * baseline_avg_percent_diff
         )
-        opensmile_score = 100 - (100 * (1 - (avg_os_distance / opensmile_threshold)))
+        # Handle case where threshold could be zero to avoid division by zero
+        if opensmile_threshold == 0:
+            # If the threshold is 0, any non-zero difference means a mismatch.
+            opensmile_score = -100 if avg_verification_percent_diff > 0 else 100
+        else:
+            opensmile_score = 100 * (1 - (avg_verification_percent_diff / opensmile_threshold))
 
         # --- Final Prediction ---
-        # The final confidence is now just the opensmile_score.
         # The prediction is based on whether the confidence is above 50.
         prediction = True if opensmile_score >= 50 else False
 
@@ -170,7 +186,7 @@ def verify():
                 "confidence": opensmile_score,
                 "details": {
                     "opensmile_score": opensmile_score,
-                    "avg_verification_euclidean_distance": avg_os_distance,
+                    "avg_verification_percent_difference": avg_verification_percent_diff,
                 },
             }
         )
@@ -193,7 +209,7 @@ def get_profile(user_id):
     profile_copy = {
         "user_id": profile["user_id"],
         "opensmile_vectors": [v.tolist() for v in profile["opensmile_vectors"]],
-        "avg_euclidean_distance": profile["avg_euclidean_distance"],
+        "avg_percent_difference": profile["avg_percent_difference"],
     }
 
     return jsonify(profile_copy)
