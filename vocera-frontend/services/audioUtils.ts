@@ -73,6 +73,42 @@ class AudioUtils {
     }
   }
 
+  // Extract the last 5 seconds from an audio recording
+  async extractLast5Seconds(audioUri: string): Promise<AudioSegment | null> {
+    try {
+      const totalDuration = await this.getAudioDuration(audioUri);
+      
+      if (totalDuration <= 5) {
+        // If recording is 5 seconds or less, return the whole thing
+        return {
+          uri: audioUri,
+          duration: totalDuration,
+        };
+      }
+      
+      // Extract last 5 seconds
+      const startTime = totalDuration - 5;
+      return await this.segmentAudio(audioUri, startTime, totalDuration);
+      
+    } catch (error) {
+      console.error('Error extracting last 5 seconds:', error);
+      return null;
+    }
+  }
+
+  // Convert audio file to base64 for API calls
+  async audioToBase64(audioUri: string): Promise<string | null> {
+    try {
+      const base64 = await FileSystem.readAsStringAsync(audioUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      return base64;
+    } catch (error) {
+      console.error('Error converting audio to base64:', error);
+      return null;
+    }
+  }
+
   // Clean up temporary files
   async cleanupTempFiles(): Promise<void> {
     try {

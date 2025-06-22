@@ -12,7 +12,6 @@ import {
 } from 'react-native'
 import { supabase } from '../lib/supabase'
 import { supabaseService } from '../services/supabaseService'
-import { LinearGradient } from 'expo-linear-gradient'
 import { Lock, Mail, User } from 'lucide-react-native'
 
 AppState.addEventListener('change', (state) => {

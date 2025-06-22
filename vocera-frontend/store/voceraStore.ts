@@ -28,6 +28,9 @@ interface VoceraStore {
   user: User | null;
   authToken: string | null;
   
+  // Verification state
+  targetUserId: string | null; // ID of user being verified
+  
   // Calls state
   savedCalls: Call[];
   
@@ -41,6 +44,7 @@ interface VoceraStore {
   setUser: (user: User) => void;
   updateUser: (updates: Partial<User>) => void;
   setAuthToken: (token: string | null) => void;
+  setTargetUserId: (userId: string | null) => void;
   addSavedCall: (call: Call) => void;
   removeSavedCall: (callId: string) => void;
   setIsRecording: (recording: boolean) => void;
@@ -82,6 +86,7 @@ export const useVoceraStore = create<VoceraStore>()(
       // Initial state
       user: null,
       authToken: null,
+      targetUserId: null,
       savedCalls: [],
       isRecording: false,
       currentTranscript: '',
@@ -97,6 +102,8 @@ export const useVoceraStore = create<VoceraStore>()(
         })),
       
       setAuthToken: (token: string | null) => set({ authToken: token }),
+      
+      setTargetUserId: (userId: string | null) => set({ targetUserId: userId }),
       
       addSavedCall: (call: Call) => 
         set((state) => ({ 
@@ -130,6 +137,7 @@ export const useVoceraStore = create<VoceraStore>()(
         set({
           user: null,
           authToken: null,
+          targetUserId: null,
           savedCalls: [],
           isRecording: false,
           currentTranscript: '',

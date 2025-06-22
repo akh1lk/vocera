@@ -242,10 +242,10 @@ export default function RecordClipsScreen() {
       
       console.log('Training API response:', result);
 
-      // Step 4: Update vox key with training data URL if provided
-      if (result.training_data_url) {
-        await supabaseService.updateVoxKeyAudioUrl(voxKey.id, result.training_data_url);
-      }
+      // // Step 4: Update vox key with training data URL if provided
+      // if (result.training_data_url) {
+      //   await supabaseService.updateVoxKeyAudioUrl(voxKey.id, result.training_data_url);
+      // }
 
       // Step 5: Update user state to reflect they now have a vox key
       setUser({

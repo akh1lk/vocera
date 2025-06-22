@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -32,16 +32,12 @@ import { InstructionsPanel } from '../../components/InstructionsPanel';
 import { TranscriptView } from '../../components/TranscriptView';
 import { Recorder } from '../../components/Recorder';
 import { useVoceraStore } from '../../store/voceraStore';
-import { voceraAPI } from '../../services/api';
 import { supabaseService } from '../../services/supabaseService';
 import { openaiService } from '../../services/openaiService';
-import { deepfakeService } from '../../services/deepfakeService';
 import { audioUtils } from '../../services/audioUtils';
 import { RecordingResult } from '../../hooks/useAudioRecorder';
-import { router } from 'expo-router';
-import { useAudioRecorder, AudioModule, RecordingPresets } from 'expo-audio';
 
-type VerificationStep = 'initial' | 'name-entry' | 'ready' | 'recording' | 'waiting-for-caller' | 'caller-speaking' | 'processing' | 'result';
+type VerificationStep = 'initial' | 'name-entry' | 'ready' | 'recording' | 'processing' | 'result';
 
 // Wave Animation Component
 const WaveAnimation = ({ isActive }: { isActive: boolean }) => {
@@ -99,23 +95,10 @@ export default function HomeScreen() {
     match: boolean;
     confidence: number;
     transcript: string;
-    isDeepfake?: boolean;
   } | null>(null);
   const [isAnimated, setIsAnimated] = useState(false);
   const [showNameInput, setShowNameInput] = useState(false);
-  const [liveTranscript, setLiveTranscript] = useState('');
   const [nameSubmitted, setNameSubmitted] = useState(false);
-
-  // New recording flow state
-  const [isRecording, setIsRecording] = useState(false);
-  const [recordingStartTime, setRecordingStartTime] = useState<number | null>(null);
-  const [callerPhraseTime, setCallerPhraseTime] = useState<number | null>(null);
-  const [countdown, setCountdown] = useState(0);
-  const [fullAudioUri, setFullAudioUri] = useState<string | null>(null);
-
-  // Audio recorder
-  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Animation values
   const logoTranslateY = useSharedValue(0);
@@ -147,39 +130,14 @@ export default function HomeScreen() {
     user,
     currentTranscript,
     setCurrentTranscript,
-    addSavedCall
+    addSavedCall,
+    setTargetUserId,
+    targetUserId
   } = useVoceraStore();
-
-  // Track if vox key setup alert was shown
-  const [voxKeyAlertShown, setVoxKeyAlertShown] = useState(false);
-
-  // Redirect to record if user doesn't have vox key
-  useEffect(() => {
-    if (user && !user.hasVoxKey && !voxKeyAlertShown) {
-      setVoxKeyAlertShown(true);
-      Alert.alert(
-        'Set Up Your Vox Key',
-        'You need to record your voice samples first to use voice verification.',
-        [
-          {
-            text: 'Set Up Now',
-            onPress: () => router.push('/record'),
-          },
-          {
-            text: 'Later',
-            style: 'cancel',
-            onPress: () => {
-              // Allow showing alert again next time they visit
-              setVoxKeyAlertShown(false);
-            }
-          }
-        ]
-      );
-    }
-  }, [user, voxKeyAlertShown]);
 
   // Entrance animations on mount
   useEffect(() => {
+
     // Title fades in first
     titleOpacity.value = withTiming(1, { 
       duration: 800,
@@ -355,9 +313,11 @@ export default function HomeScreen() {
     setTimeout(() => {
       setIsAnimated(false);
       setShowNameInput(false);
-      setLiveTranscript('');
+      setCallerName('');
+      setNameError('');
       setCurrentTranscript('');
       setNameSubmitted(false);
+      setTargetUserId(null);
     }, 300);
   };
 
@@ -444,24 +404,15 @@ export default function HomeScreen() {
     if (!user?.hasVoxKey) {
       Alert.alert(
         'No Vox Key',
-        'You need to set up your Vox Key first.',
-        [
-          { 
-            text: 'Set Up Now', 
-            onPress: () => router.push('/record')
-          },
-          { 
-            text: 'Cancel', 
-            style: 'cancel'
-          }
-        ]
+        'You need to set up your Vox Key first. Go to Settings to create one.',
+        [{ text: 'OK' }]
       );
       return;
     }
     setCurrentStep('name-entry');
   };
 
-  const handleNameSubmit = () => {
+  const handleNameSubmit = async () => {
     const trimmedName = callerName.trim();
 
     if (!trimmedName) {
@@ -476,20 +427,38 @@ export default function HomeScreen() {
 
     setNameError('');
     
-    // Slower fade out for name input
-    nameInputOpacity.value = withTiming(0, { 
-      duration: 500,
-      easing: Easing.in(Easing.quad)
-    });
-    
-    setTimeout(() => {
-      instructionsOpacity.value = withSpring(1, {
-        damping: 20,
-        stiffness: 100
+    try {
+      // Look up user by name
+      const foundUser = await supabaseService.findUserByName(trimmedName);
+      
+      if (!foundUser) {
+        setNameError('No user found with that name');
+        return;
+      }
+      
+      // Store the target user ID
+      setTargetUserId(foundUser.id);
+      console.log('Found user:', foundUser.first_name, foundUser.last_name, 'ID:', foundUser.id);
+      
+      // Slower fade out for name input
+      nameInputOpacity.value = withTiming(0, { 
+        duration: 500,
+        easing: Easing.in(Easing.quad)
       });
-    }, 400);
+      
+      setTimeout(() => {
+        instructionsOpacity.value = withSpring(1, {
+          damping: 20,
+          stiffness: 100
+        });
+      }, 400);
 
-    setNameSubmitted(true);
+      setNameSubmitted(true);
+      
+    } catch (error) {
+      console.error('Error looking up user:', error);
+      setNameError('Error finding user. Please try again.');
+    }
   };
 
   const handleEditName = () => {
@@ -508,169 +477,6 @@ export default function HomeScreen() {
     setNameSubmitted(false);
   };
 
-  const startRecordingFlow = async () => {
-    // Start recording immediately after name is entered
-    try {
-      await audioRecorder.prepareToRecordAsync({
-        ...RecordingPresets.HIGH_QUALITY,
-        isMeteringEnabled: true,
-      });
-      
-      audioRecorder.record();
-      setIsRecording(true);
-      setRecordingStartTime(Date.now());
-      setCurrentStep('recording');
-      
-    } catch (error) {
-      console.error('Failed to start recording:', error);
-      Alert.alert('Error', 'Could not start recording.');
-    }
-  };
-
-  const handleEnterPressed = () => {
-    if (!isRecording) return;
-    
-    // Mark the timestamp when caller should start speaking
-    const now = Date.now();
-    setCallerPhraseTime(now);
-    setCurrentStep('waiting-for-caller');
-    
-    // Show countdown and caller instruction
-    setCountdown(8);
-    
-    // Start countdown timer
-    const countdownInterval = setInterval(() => {
-      setCountdown(prev => {
-        if (prev <= 1) {
-          clearInterval(countdownInterval);
-          handleStopRecording();
-          return 0;
-        }
-        if (prev === 6) {
-          // After 2 seconds, show "Recording Caller" phase
-          setCurrentStep('caller-speaking');
-        }
-        return prev - 1;
-      });
-    }, 1000);
-  };
-
-  const handleStopRecording = async () => {
-    try {
-      await audioRecorder.stop();
-      const uri = audioRecorder.uri;
-      
-      if (uri) {
-        setFullAudioUri(uri);
-        setIsRecording(false);
-        setCurrentStep('processing');
-        await processRecording(uri);
-      }
-    } catch (error) {
-      console.error('Failed to stop recording:', error);
-      Alert.alert('Error', 'Could not stop recording.');
-      resetToInitial();
-    }
-  };
-
-  const processRecording = async (audioUri: string) => {
-    try {
-      // 1. Get full transcript from OpenAI Whisper
-      const transcriptPromise = openaiService.transcribeAudio(audioUri);
-
-      // 2. Segment audio from caller phrase timestamp
-      let segmentedAudio = null;
-      if (callerPhraseTime && recordingStartTime) {
-        const segmentStartTime = (callerPhraseTime - recordingStartTime) / 1000; // Convert to seconds
-        segmentedAudio = await audioUtils.segmentAudio(audioUri, segmentStartTime);
-      }
-
-      // 3. Find target user by name
-      const targetUser = await supabaseService.findUserByName(callerName);
-      if (!targetUser) {
-        Alert.alert('Error', 'Could not find user with that name.');
-        resetToInitial();
-        return;
-      }
-
-      // 4. Run deepfake detection on segmented audio
-      let deepfakeResult = null;
-      if (segmentedAudio) {
-        deepfakeResult = await deepfakeService.detectDeepfake(segmentedAudio.uri, targetUser.id);
-      }
-
-      // 5. Wait for transcript
-      const transcript = await transcriptPromise;
-
-      // 6. Combine results
-      const verificationResult = {
-        match: deepfakeResult ? !deepfakeResult.prediction : false, // Invert: true prediction = deepfake = not authentic
-        confidence: deepfakeResult?.confidence || 0,
-        transcript: transcript || 'Transcription failed',
-        isDeepfake: deepfakeResult?.prediction || false,
-      };
-
-      setVerificationResult(verificationResult);
-      setCurrentTranscript(transcript || '');
-      setCurrentStep('result');
-
-      // 7. Save result to Supabase
-      if (user?.id && deepfakeResult) {
-        try {
-          await supabaseService.createResult({
-            prediction: !deepfakeResult.prediction, // Invert for "match" field
-            confidence: deepfakeResult.confidence,
-            transcript: transcript || '',
-            target: targetUser.id,
-            saved_by: user.id,
-          });
-        } catch (supabaseError) {
-          console.error('Error saving to Supabase:', supabaseError);
-        }
-      }
-
-      // 8. Keep the old local storage for backwards compatibility
-      if (verificationResult.match) {
-        addSavedCall({
-          id: Date.now().toString(),
-          name: callerName,
-          timestamp: new Date().toISOString(),
-          audioUri: audioUri,
-          transcript: transcript || '',
-          confidence: verificationResult.confidence,
-          verified: true,
-        });
-      }
-
-      // 9. Cleanup temporary files
-      if (segmentedAudio) {
-        await audioUtils.cleanupTempFiles();
-      }
-
-    } catch (error) {
-      console.error('Processing error:', error);
-      Alert.alert('Error', 'Failed to process recording. Please try again.');
-      resetToInitial();
-    }
-  };
-
-  const resetToInitial = () => {
-    setIsRecording(false);
-    setRecordingStartTime(null);
-    setCallerPhraseTime(null);
-    setCountdown(0);
-    setFullAudioUri(null);
-    setCurrentStep('initial');
-    setCallerName('');
-    setVerificationResult(null);
-    setCurrentTranscript('');
-    
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-  };
-
   const handleRecordingStart = () => {
     setCurrentStep('recording');
     setCurrentTranscript('');
@@ -679,54 +485,103 @@ export default function HomeScreen() {
   const handleRecordingComplete = async (result: RecordingResult) => {
     setCurrentStep('processing');
 
-    try {
-      const response = await voceraAPI.verifyVoxKey(
-        {
-          uri: result.uri,
-          name: 'verification.wav',
-          type: 'audio/wav',
-        },
-        callerName,
-        user?.id
-      );
+    if (!targetUserId) {
+      Alert.alert('Error', 'No target user found. Please try again.');
+      setCurrentStep('ready');
+      return;
+    }
 
-      setVerificationResult(response);
-      setCurrentTranscript(response.transcript);
+    try {
+      // Start both processes concurrently
+      const [last5SecondsSegment, fullTranscript] = await Promise.all([
+        // Extract last 5 seconds for verification API using audioUtils
+        audioUtils.extractLast5Seconds(result.uri),
+        // Get full transcript from Whisper
+        openaiService.transcribeAudio(result.uri).catch((error) => {
+          console.warn('Whisper transcription failed:', error);
+          return 'Transcription failed';
+        })
+      ]);
+
+      if (!last5SecondsSegment) {
+        throw new Error('Failed to extract audio segment for verification');
+      }
+
+      // Convert last 5 seconds to base64 for API call using audioUtils
+      const audioBase64 = await audioUtils.audioToBase64(last5SecondsSegment.uri);
+      if (!audioBase64) {
+        throw new Error('Failed to convert audio to base64');
+      }
+
+      // Call your external verification API
+      const verificationResponse = await fetch('https://vocera.herokuapp.com/verify', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          target_user_id: targetUserId,
+          audio_data: audioBase64,
+          caller_name: callerName
+        }),
+      });
+
+      if (!verificationResponse.ok) {
+        throw new Error(`Verification API failed: ${verificationResponse.status}`);
+      }
+
+      const verificationResult = await verificationResponse.json();
+
+      // Set the transcript from Whisper (or fallback to verification transcript)
+      const finalTranscript = fullTranscript !== 'Transcription failed' ? fullTranscript : (verificationResult.transcript || 'No transcript available');
+      setCurrentTranscript(finalTranscript);
+
+      // Create final result object
+      const finalResult = {
+        match: verificationResult.prediction || false,
+        confidence: verificationResult.confidence || 0,
+        transcript: finalTranscript
+      };
+      setVerificationResult(finalResult);
+
+      // Auto-save the result to Supabase results table
+      try {
+        await supabaseService.createResult({
+          prediction: finalResult.match,
+          confidence: finalResult.confidence,
+          transcript: finalTranscript,
+          target: callerName,
+          saved_by: user?.id
+        });
+        console.log('Result auto-saved to database');
+      } catch (saveError) {
+        console.error('Failed to save result to database:', saveError);
+        // Don't fail the whole flow if saving fails
+      }
+
+      // Auto-save call to local storage
+      addSavedCall({
+        id: Date.now().toString(),
+        name: callerName,
+        timestamp: new Date().toISOString(),
+        audioUri: result.uri,
+        transcript: finalTranscript,
+        confidence: finalResult.confidence,
+        verified: finalResult.match,
+      });
+
       setCurrentStep('result');
 
-      // Save verification result to Supabase
-      if (user?.id) {
-        try {
-          await supabaseService.createResult({
-            prediction: response.match,
-            confidence: response.confidence,
-            transcript: response.transcript,
-            target: callerName,
-            saved_by: user.id,
-          });
-        } catch (supabaseError) {
-          console.error('Error saving to Supabase:', supabaseError);
-          // Don't show error to user, just log it
-        }
-      }
-
-      // Keep the old local storage for backwards compatibility
-      if (response.match) {
-        addSavedCall({
-          id: Date.now().toString(),
-          name: callerName,
-          timestamp: new Date().toISOString(),
-          audioUri: result.uri,
-          transcript: response.transcript,
-          confidence: response.confidence,
-          verified: true,
-        });
-      }
+      // Cleanup temporary audio files using audioUtils
+      await audioUtils.cleanupTempFiles();
 
     } catch (error) {
       console.error('Verification error:', error);
       Alert.alert('Error', 'Failed to verify voice. Please try again.');
       setCurrentStep('ready');
+      
+      // Cleanup on error using audioUtils
+      await audioUtils.cleanupTempFiles();
     }
   };
 
@@ -741,8 +596,8 @@ export default function HomeScreen() {
     setNameError('');
     setVerificationResult(null);
     setCurrentTranscript('');
-    setLiveTranscript('');
     setShowNameInput(false);
+    setTargetUserId(null);
   };
 
   const handleSaveCall = () => {
@@ -754,7 +609,7 @@ export default function HomeScreen() {
     <SafeAreaView style={styles.container}>
       <LinearGradient
         colors={['transparent', 'rgba(37, 139, 182, 0.08)', 'rgba(37, 139, 182, 0.18)', 'rgba(37, 139, 182, 0.3)']}
-        locations={[0, 0.3, 0.7, 1]}
+        locations={[0, 0.4, 0.8, 1]}
         style={styles.gradientContainer}
       >
         {/* X Button - Fixed position with animation */}
@@ -810,43 +665,6 @@ export default function HomeScreen() {
               </>
             )}
 
-            {/* Recording Flow */}
-            {currentStep === 'recording' && (
-              <View style={styles.recordingFlow}>
-                <Text style={styles.recordingStatus}>Recording Started</Text>
-                <Text style={styles.recordingInstruction}>
-                  Tell {callerName || 'the caller'} to say their Vox Key, then press Enter
-                </Text>
-                <TouchableOpacity 
-                  style={styles.enterButton} 
-                  onPress={handleEnterPressed}
-                >
-                  <Text style={styles.enterButtonText}>ENTER</Text>
-                </TouchableOpacity>
-              </View>
-            )}
-
-            {(currentStep === 'waiting-for-caller' || currentStep === 'caller-speaking') && (
-              <View style={styles.recordingFlow}>
-                <Text style={styles.recordingStatus}>
-                  Tell {callerName || 'the caller'} to say their Vox Key
-                </Text>
-                {currentStep === 'caller-speaking' && (
-                  <Text style={styles.callerRecordingText}>Recording Caller</Text>
-                )}
-                <Text style={styles.countdown}>{countdown}</Text>
-              </View>
-            )}
-
-            {currentStep === 'processing' && (
-              <View style={styles.processingContainer}>
-                <Text style={styles.processingText}>Processing...</Text>
-                <Text style={styles.processingSubtext}>
-                  Analyzing audio and checking authenticity
-                </Text>
-              </View>
-            )}
-
             {/* Simple Name Input - appears right below the V button after transition */}
             {showNameInput && (
               <>
@@ -883,42 +701,30 @@ export default function HomeScreen() {
             </View>
           </Animated.View>
 
-            {/* Name Entry Step */}
+            {/* Other steps */}
             {currentStep === 'name-entry' && (
-              <View style={styles.nameEntryContainer}>
-                <Text style={styles.nameEntryTitle}>Who is calling?</Text>
-                <TextInput
-                  style={styles.nameInput}
+              <View>
+                <NameInput
                   value={callerName}
                   onChangeText={setCallerName}
-                  placeholder="Enter caller's name"
-                  placeholderTextColor="#999"
+                  error={nameError}
                   autoFocus
-                  autoCapitalize="words"
-                  returnKeyType="done"
-                  onSubmitEditing={handleNameSubmit}
+                  onSubmit={handleNameSubmit}
                 />
-                {nameError ? <Text style={styles.nameError}>{nameError}</Text> : null}
                 <View style={styles.buttonRow}>
-                  <TouchableOpacity 
-                    style={styles.backButton} 
+                  <VoxButton
+                    title="Back"
                     onPress={() => setCurrentStep('initial')}
-                  >
-                    <Text style={styles.backButtonText}>Back</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity 
-                    style={styles.continueButton} 
-                    onPress={() => {
-                      if (callerName.trim()) {
-                        setCurrentStep('ready');
-                        startRecordingFlow();
-                      } else {
-                        handleNameSubmit();
-                      }
-                    }}
-                  >
-                    <Text style={styles.continueButtonText}>Start Recording</Text>
-                  </TouchableOpacity>
+                    variant="secondary"
+                    size="medium"
+                    style={styles.backButton}
+                  />
+                  <VoxButton
+                    title="Continue"
+                    onPress={handleNameSubmit}
+                    size="medium"
+                    style={styles.continueButton}
+                  />
                 </View>
               </View>
             )}
@@ -971,28 +777,30 @@ export default function HomeScreen() {
                     {verificationResult.match ? '✅' : '❌'}
                   </Text>
                   <Text style={styles.resultTitle}>
-                    {verificationResult.match ? 'Authentic' : (verificationResult.isDeepfake ? 'Deepfake Detected' : 'Not Verified')}
+                    {verificationResult.match ? 'Verified' : 'Not Verified'}
                   </Text>
                   <Text style={styles.resultDetails}>
                     Confidence: {Math.round(verificationResult.confidence * 100)}%
                   </Text>
                   <Text style={styles.callerName}>{callerName}</Text>
-                  
-                  {currentTranscript && (
-                    <View style={styles.transcriptContainer}>
-                      <Text style={styles.transcriptLabel}>Transcript:</Text>
-                      <Text style={styles.transcriptText}>{currentTranscript}</Text>
-                    </View>
-                  )}
                 </View>
 
                 <View style={styles.resultButtons}>
-                  <TouchableOpacity 
-                    style={styles.verifyAnotherButton} 
-                    onPress={resetToInitial}
-                  >
-                    <Text style={styles.verifyAnotherButtonText}>Verify Another</Text>
-                  </TouchableOpacity>
+                  {verificationResult.match && (
+                    <VoxButton
+                      title="Save Call"
+                      onPress={handleSaveCall}
+                      size="medium"
+                      style={styles.saveButton}
+                    />
+                  )}
+                  <VoxButton
+                    title="Verify Another"
+                    onPress={handleStartOver}
+                    variant="secondary"
+                    size="medium"
+                    style={styles.anotherButton}
+                  />
                 </View>
               </View>
             )}
@@ -1160,34 +968,10 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   backButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(37, 139, 182, 0.3)',
     flex: 1,
   },
-  backButtonText: {
-    color: '#258bb6',
-    fontSize: 16,
-    fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
-    textAlign: 'center',
-  },
   continueButton: {
-    backgroundColor: '#258bb6',
-    borderRadius: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
     flex: 2,
-  },
-  continueButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
-    textAlign: 'center',
   },
   changeNameButton: {
     alignSelf: 'center',
@@ -1256,10 +1040,10 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     minWidth: 280,
     textAlign: 'center',
-    shadowColor: '#258bb6',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 12,
+    shadowColor: '#258bb6',      // Your blue glow
+    shadowOffset: { width: 0, height: 0 },  // Even glow all around
+    shadowOpacity: 0.6,          // Visible glow
+    shadowRadius: 12,            // Size of glow
     elevation: 8,
   },
   nameError: {
@@ -1270,147 +1054,19 @@ const styles = StyleSheet.create({
   },
   instructions: {
     position: 'absolute',
-    top: 50,
+    top: 50, // Much higher up
     left: 20,
     right: 20,
     alignItems: 'center',
     paddingHorizontal: 20,
   },
   instructionsText: {
-    fontFamily: 'GeorgiaPro-CondRegular',
+    fontFamily: 'GeorgiaPro-CondRegular', // Changed to Georgia Pro
     fontSize: 30,
     fontWeight: '600',
     color: '#258bb6',
     textAlign: 'center',
     lineHeight: 28,
     marginBottom: 16,
-  },
-  // New recording flow styles
-  nameEntryContainer: {
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  nameEntryTitle: {
-    fontFamily: 'GeorgiaPro-CondBlack',
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#333333',
-    marginBottom: 20,
-    textAlign: 'center',
-  },
-  nameInput: {
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 15,
-    fontSize: 18,
-    color: '#333',
-    borderWidth: 1,
-    borderColor: 'rgba(37, 139, 182, 0.3)',
-    minWidth: 280,
-    textAlign: 'center',
-    fontFamily: 'Inter-Regular',
-    marginBottom: 10,
-  },
-  recordingFlow: {
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  recordingStatus: {
-    fontFamily: 'GeorgiaPro-CondBlack',
-    fontSize: 24,
-    fontWeight: '700',
-    color: '#333333',
-    marginBottom: 15,
-    textAlign: 'center',
-  },
-  recordingInstruction: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 16,
-    color: '#666666',
-    textAlign: 'center',
-    marginBottom: 20,
-    lineHeight: 24,
-  },
-  enterButton: {
-    backgroundColor: '#258bb6',
-    borderRadius: 50,
-    paddingVertical: 15,
-    paddingHorizontal: 40,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  enterButtonText: {
-    color: '#FFFFFF',
-    fontSize: 18,
-    fontWeight: '700',
-    fontFamily: 'Inter-Bold',
-  },
-  callerRecordingText: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 18,
-    color: '#FF3B30',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  countdown: {
-    fontFamily: 'GeorgiaPro-CondBlack',
-    fontSize: 48,
-    fontWeight: '700',
-    color: '#FF3B30',
-    textAlign: 'center',
-  },
-  processingText: {
-    fontFamily: 'GeorgiaPro-CondBlack',
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#258bb6',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  processingSubtext: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 16,
-    color: '#666666',
-    textAlign: 'center',
-    lineHeight: 24,
-  },
-  transcriptContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.8)',
-    borderRadius: 8,
-    padding: 12,
-    marginTop: 12,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  transcriptLabel: {
-    fontFamily: 'Inter-SemiBold',
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#666666',
-    marginBottom: 4,
-    textTransform: 'uppercase',
-  },
-  transcriptText: {
-    fontFamily: 'Inter-Regular',
-    fontSize: 14,
-    color: '#333333',
-    lineHeight: 20,
-  },
-  verifyAnotherButton: {
-    backgroundColor: '#258bb6',
-    borderRadius: 12,
-    paddingVertical: 15,
-    paddingHorizontal: 30,
-    alignItems: 'center',
-  },
-  verifyAnotherButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '600',
-    fontFamily: 'Inter-SemiBold',
   },
 });
