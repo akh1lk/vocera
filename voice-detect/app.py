@@ -7,6 +7,7 @@ import tempfile
 from sklearn.preprocessing import StandardScaler
 import requests
 from dotenv import load_dotenv
+from pydub import AudioSegment
 
 import logging
 
@@ -30,7 +31,8 @@ from feature_extractor import (
     deserialize_scaler,
 )
 from database import SupabaseDatabase
-from speaker_verification import verify_speaker_from_data
+
+# from speaker_verification import verify_speaker_from_data  # COMMENTED OUT FOR MINIMAL DEPLOYMENT
 
 from supabase import create_client, Client
 
@@ -52,16 +54,66 @@ db = SupabaseDatabase(supabase_client=supabase)
 OPEN_SMILE_THRESHOLD_MULTIPLIER = 1.8
 
 
+def convert_audio_to_wav(input_path):
+    """
+    Converts any audio file to WAV format using pydub.
+
+    Args:
+        input_path (str): Path to input audio file
+
+    Returns:
+        str: Path to converted WAV file, or None if conversion failed
+    """
+    try:
+        # Detect format from file header
+        with open(input_path, "rb") as f:
+            header = f.read(16)
+
+        # Determine input format
+        if b"ftyp" in header and b"M4A" in header:
+            input_format = "m4a"
+        elif header.startswith(b"RIFF") and b"WAVE" in header:
+            # Already WAV format
+            return input_path
+        elif header.startswith(b"\xff\xfb") or header.startswith(b"ID3"):
+            input_format = "mp3"
+        else:
+            # Try to auto-detect
+            input_format = None
+
+        # Load audio with pydub
+        if input_format:
+            audio = AudioSegment.from_file(input_path, format=input_format)
+        else:
+            audio = AudioSegment.from_file(input_path)
+
+        # Create new temp file for WAV output
+        wav_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        wav_path = wav_temp.name
+        wav_temp.close()
+
+        # Export as WAV
+        audio.export(wav_path, format="wav")
+
+        logger.info(f"Successfully converted audio file to WAV: {wav_path}")
+        return wav_path
+
+    except Exception as e:
+        logger.error(f"Error converting audio file {input_path}: {e}")
+        return None
+
+
 def download_audio_from_url(audio_url):
     """
     Downloads an audio file from the supabase bucket URL and saves it to a temporary local file.
     """
     try:
-        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+        temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".m4a", mode="wb")
         response = requests.get(audio_url, stream=True)
         response.raise_for_status()
         for chunk in response.iter_content(chunk_size=8192):
-            temp_file.write(chunk)
+            if chunk:  # filter out keep-alive chunks
+                temp_file.write(chunk)
         temp_file.close()
         return temp_file.name
     except requests.exceptions.RequestException as e:
@@ -89,16 +141,36 @@ def download_multiple_files_from_urls(file_urls):
     try:
         for i, url in enumerate(file_urls):
             try:
-                temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
+                temp_file = tempfile.NamedTemporaryFile(
+                    delete=False, suffix=".m4a", mode="wb"
+                )
                 response = requests.get(url, stream=True)
                 response.raise_for_status()
 
+                bytes_written = 0
                 for chunk in response.iter_content(chunk_size=8192):
-                    temp_file.write(chunk)
+                    if chunk:  # filter out keep-alive chunks
+                        temp_file.write(chunk)
+                        bytes_written += len(chunk)
                 temp_file.close()
 
-                temp_files.append(temp_file.name)
-                logger.info(f"Successfully downloaded file {i+1}/{len(file_urls)}")
+                logger.info(
+                    f"Successfully downloaded file {i+1}/{len(file_urls)}, {bytes_written} bytes"
+                )
+
+                # Convert to WAV format
+                wav_path = convert_audio_to_wav(temp_file.name)
+                if wav_path:
+                    # Clean up original file and use converted WAV
+                    os.remove(temp_file.name)
+                    temp_files.append(wav_path)
+                    logger.info(f"File {i+1} converted to WAV successfully")
+                else:
+                    logger.error(f"Failed to convert file {i+1} to WAV")
+                    # Clean up the failed file
+                    if os.path.exists(temp_file.name):
+                        os.remove(temp_file.name)
+                    failed_downloads.append(url)
 
             except requests.exceptions.RequestException as e:
                 logger.error(f"Error downloading file {i+1} from URL {url}: {e}")
@@ -344,7 +416,27 @@ def calibrate():
 
         # Extract raw features first (without normalization)
         logger.info("Extracting features from audio files...")
-        raw_feature_vectors = [extract_opensmile_features(f) for f in temp_files]
+        raw_feature_vectors = []
+        for i, temp_file_path in enumerate(temp_files):
+            try:
+                # Debug: Check file size and first few bytes
+                file_size = os.path.getsize(temp_file_path)
+                logger.info(
+                    f"Processing file {i+1}: {temp_file_path}, size: {file_size} bytes"
+                )
+
+                # Read first 16 bytes to check file header (for debugging)
+                with open(temp_file_path, "rb") as f:
+                    header = f.read(16)
+                    logger.info(f"File {i+1} header (hex): {header.hex()}")
+                    logger.info(f"File {i+1} header (text): {header}")
+
+                features = extract_opensmile_features(temp_file_path)
+                raw_feature_vectors.append(features)
+                logger.info(f"Successfully extracted features from file {i+1}")
+            except Exception as e:
+                logger.error(f"Error processing file {i+1} ({temp_file_path}): {e}")
+                raise
 
         # Create and fit StandardScaler on the calibration data
         try:
@@ -458,25 +550,25 @@ def verify():
             logger.error(f"ln 186 error could not find {id}")
             return jsonify({"error": "User profile not found"}), 404
 
-        # --- Speaker Verification (Primary) ---
-        speaker_verification_result = ("model_not_run", (False, 0.0))
-        training_url = profile.get("training_audio_url")
+        # --- Speaker Verification (Primary) --- COMMENTED OUT FOR MINIMAL DEPLOYMENT
+        speaker_verification_result = ("model_not_deployed", (False, 0.0))
+        # training_url = profile.get("training_audio_url")
 
-        if training_url:
-            reference_audio_path = download_audio_from_url(training_url)
-            if reference_audio_path:
-                # Placeholder for your actual function call
-                speaker_verification_result = verify_speaker_from_data(
-                    reference_audio_path, temp_file_path
-                )
-                print(
-                    f"Calling speaker verification with: {reference_audio_path} and {temp_file_path}"
-                )
-            else:
-                print(
-                    "Warning: Failed to download reference audio. Skipping speaker verification."
-                )
-                speaker_verification_result = ("download_failed", (False, 0.0))
+        # if training_url:
+        #     reference_audio_path = download_audio_from_url(training_url)
+        #     if reference_audio_path:
+        #         # Placeholder for your actual function call
+        #         speaker_verification_result = verify_speaker_from_data(
+        #             reference_audio_path, temp_file_path
+        #         )
+        #         print(
+        #             f"Calling speaker verification with: {reference_audio_path} and {temp_file_path}"
+        #         )
+        #     else:
+        #         print(
+        #             "Warning: Failed to download reference audio. Skipping speaker verification."
+        #         )
+        #         speaker_verification_result = ("download_failed", (False, 0.0))
 
         # --- openSMILE Verification (Secondary) ---
         baseline_os_vectors = profile["opensmile_vectors"]

@@ -8,5 +8,5 @@ openai
 python-dotenv
 scikit-learn
 requests
-speechbrain
 supabase
+pydub
