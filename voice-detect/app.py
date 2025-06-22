@@ -498,34 +498,10 @@ def verify():
             uploaded_file.save(temp_file)
             temp_original_path = temp_file.name
 
-        # Convert to MP3 with normalization
-        logger.info("Converting uploaded file to normalized MP3...")
-        try:
-            # Load and normalize audio
-            audio = AudioSegment.from_file(temp_original_path)
-
-            # Normalize volume
-            normalized_audio = audio.normalize()
-
-            # Set consistent sample rate and channels
-            normalized_audio = normalized_audio.set_frame_rate(16000)  # 16kHz
-            normalized_audio = normalized_audio.set_channels(1)  # Mono
-
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as mp3_file:
-                temp_file_path = mp3_file.name
-
-            # Export as MP3 with specific settings
-            normalized_audio.export(temp_file_path, format="mp3", bitrate="128k")
-
-            logger.info(f"Converted to normalized MP3: {temp_file_path}")
-
-            # Clean up original temp file
-            os.remove(temp_original_path)
-            temp_original_path = None
-
-        except Exception as e:
-            logger.error(f"Failed to convert to MP3: {e}")
-            return jsonify({"error": f"Failed to process audio: {str(e)}"}), 400
+            # Use the raw uploaded file directly (skip conversion for now)
+        logger.info("Using uploaded file directly...")
+        temp_file_path = temp_original_path
+        temp_original_path = None  # Prevent double cleanup
 
         # Fetch user profile from the database
         profile = db.get_profile(36)  # TODO hardcoded for now
