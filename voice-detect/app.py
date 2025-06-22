@@ -1,4 +1,5 @@
 import os
+import subprocess
 from flask import Flask, request, jsonify
 import numpy as np
 from scipy.spatial.distance import euclidean
@@ -54,10 +55,59 @@ db = SupabaseDatabase(supabase_client=supabase)
 OPEN_SMILE_THRESHOLD_MULTIPLIER = 1.8
 
 
+def convert_with_sox(input_path, output_path):
+    """
+    Convert audio file using SoX command line tool.
+    SoX is often more robust with corrupted or non-standard audio files.
+
+    Args:
+        input_path (str): Path to input audio file
+        output_path (str): Path to output WAV file
+
+    Returns:
+        bool: True if conversion successful, False otherwise
+    """
+    try:
+        # Use SoX to convert M4A to WAV with error tolerance
+        cmd = [
+            "sox",
+            input_path,
+            output_path,
+            "rate",
+            "16000",  # Resample to 16kHz
+            "channels",
+            "1",  # Convert to mono
+            "gain",
+            "-n",  # Normalize audio
+        ]
+
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=30  # 30 second timeout
+        )
+
+        if result.returncode == 0 and os.path.exists(output_path):
+            logger.info(f"SoX successfully converted {input_path} to {output_path}")
+            return True
+        else:
+            logger.warning(f"SoX conversion failed. Return code: {result.returncode}")
+            logger.warning(f"SoX stderr: {result.stderr}")
+            return False
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"SoX conversion timed out for {input_path}")
+        return False
+    except FileNotFoundError:
+        logger.error("SoX not found. Make sure it's installed.")
+        return False
+    except Exception as e:
+        logger.error(f"SoX conversion error: {e}")
+        return False
+
+
 def convert_audio_to_wav(input_path):
     """
-    Converts M4A audio files to WAV format using aggressive ffmpeg error handling.
-    Designed to handle corrupted M4A files with problematic 'chnl' metadata boxes.
+    Converts M4A audio files to WAV format using SoX (preferred) and ffmpeg fallbacks.
+    SoX is more robust with corrupted M4A files and problematic metadata.
 
     Args:
         input_path (str): Path to input M4A audio file
@@ -71,7 +121,11 @@ def convert_audio_to_wav(input_path):
         wav_path = wav_temp.name
         wav_temp.close()
 
-        # Strategy 1: Aggressive error handling - bypass corrupted metadata
+        # Strategy 1: Use SoX (most robust for corrupted M4A files)
+        if convert_with_sox(input_path, wav_path):
+            return wav_path
+
+        # Strategy 2: Aggressive ffmpeg error handling - bypass corrupted metadata
         try:
             audio = AudioSegment.from_file(
                 input_path,
@@ -91,13 +145,13 @@ def convert_audio_to_wav(input_path):
             audio = audio.set_channels(1).set_frame_rate(16000)
             audio.export(wav_path, format="wav", parameters=["-acodec", "pcm_s16le"])
             logger.info(
-                f"Successfully converted M4A with aggressive error handling: {wav_path}"
+                f"Successfully converted M4A with aggressive ffmpeg error handling: {wav_path}"
             )
             return wav_path
         except Exception as e1:
-            logger.warning(f"Aggressive M4A conversion failed: {e1}")
+            logger.warning(f"Aggressive ffmpeg M4A conversion failed: {e1}")
 
-        # Strategy 2: Force MP4 format instead of M4A
+        # Strategy 3: Force MP4 format instead of M4A
         try:
             audio = AudioSegment.from_file(
                 input_path,
@@ -111,7 +165,7 @@ def convert_audio_to_wav(input_path):
         except Exception as e2:
             logger.warning(f"MP4 format override failed: {e2}")
 
-        # Strategy 3: Try to extract raw audio stream
+        # Strategy 4: Last resort - raw audio stream extraction
         try:
             audio = AudioSegment.from_file(
                 input_path,
@@ -134,7 +188,9 @@ def convert_audio_to_wav(input_path):
         # Clean up failed temp file
         if os.path.exists(wav_path):
             os.remove(wav_path)
-        logger.error(f"All M4A conversion strategies failed for {input_path}")
+        logger.error(
+            f"All conversion strategies (SoX + ffmpeg) failed for {input_path}"
+        )
         return None
 
     except Exception as e:
