@@ -56,7 +56,7 @@ OPEN_SMILE_THRESHOLD_MULTIPLIER = 1.8
 
 def convert_audio_to_wav(input_path):
     """
-    Converts any audio file to WAV format using pydub.
+    Converts any audio file to WAV format using pydub with fallback strategies.
 
     Args:
         input_path (str): Path to input audio file
@@ -81,22 +81,64 @@ def convert_audio_to_wav(input_path):
             # Try to auto-detect
             input_format = None
 
-        # Load audio with pydub
-        if input_format:
-            audio = AudioSegment.from_file(input_path, format=input_format)
-        else:
-            audio = AudioSegment.from_file(input_path)
-
         # Create new temp file for WAV output
         wav_temp = tempfile.NamedTemporaryFile(delete=False, suffix=".wav")
         wav_path = wav_temp.name
         wav_temp.close()
 
-        # Export as WAV
-        audio.export(wav_path, format="wav")
+        # Try multiple conversion strategies
+        conversion_successful = False
 
-        logger.info(f"Successfully converted audio file to WAV: {wav_path}")
-        return wav_path
+        # Strategy 1: Direct pydub conversion
+        try:
+            if input_format:
+                audio = AudioSegment.from_file(input_path, format=input_format)
+            else:
+                audio = AudioSegment.from_file(input_path)
+            audio.export(wav_path, format="wav")
+            conversion_successful = True
+            logger.info(
+                f"Successfully converted audio file using direct pydub: {wav_path}"
+            )
+        except Exception as e1:
+            logger.warning(f"Direct pydub conversion failed: {e1}")
+
+            # Strategy 2: Force M4A format and ignore metadata issues
+            if input_format == "m4a":
+                try:
+                    # Try with specific codec parameters that ignore problematic metadata
+                    audio = AudioSegment.from_file(input_path, format="m4a")
+                    # Convert with basic parameters
+                    audio.export(
+                        wav_path, format="wav", parameters=["-acodec", "pcm_s16le"]
+                    )
+                    conversion_successful = True
+                    logger.info(
+                        f"Successfully converted M4A using codec override: {wav_path}"
+                    )
+                except Exception as e2:
+                    logger.warning(f"M4A codec override failed: {e2}")
+
+            # Strategy 3: Try auto-detection
+            if not conversion_successful:
+                try:
+                    audio = AudioSegment.from_file(input_path)
+                    audio.export(wav_path, format="wav")
+                    conversion_successful = True
+                    logger.info(
+                        f"Successfully converted using auto-detection: {wav_path}"
+                    )
+                except Exception as e3:
+                    logger.warning(f"Auto-detection conversion failed: {e3}")
+
+        if conversion_successful:
+            return wav_path
+        else:
+            # Clean up failed temp file
+            if os.path.exists(wav_path):
+                os.remove(wav_path)
+            logger.error(f"All conversion strategies failed for {input_path}")
+            return None
 
     except Exception as e:
         logger.error(f"Error converting audio file {input_path}: {e}")
