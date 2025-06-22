@@ -570,9 +570,9 @@ def verify():
             distance_ratio = 1e9
 
         # Parameters for the INCREASING sigmoid function: C(r) = 100 / (1 + exp(-k*(r - r0)))
-        # Solved for C(1.25)=10 and C(3.0)=90
-        k = (2 * np.log(9)) / 1.75  # Steepness of the curve (approx 2.51)
-        r0 = 2.125  # Midpoint of the curve (where deepfake confidence is 50%)
+        # Solved for C(2.25)=10 and C(3.0)=90
+        k = (2 * np.log(9)) / 0.75  # Steepness of the curve (approx 5.87)
+        r0 = 2.625  # Midpoint of the curve (where deepfake confidence is 50%)
 
         # Calculate the confidence that the sample is a deepfake
         deepfake_confidence = 100 / (1 + np.exp(-k * (distance_ratio - r0)))
