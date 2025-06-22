@@ -1,4 +1,5 @@
 import os
+import json
 from flask import Flask, request, jsonify
 import numpy as np
 from scipy.spatial.distance import euclidean
@@ -470,37 +471,70 @@ def calibrate():
 def verify():
     """
     Verifies a user's voice against their normalized profile.
-    Expects 1 .wav file and a id.
+    Expects M4A audio file, target_id, and user_id.
     """
-    if "id" not in request.form:
-        return jsonify({"error": "id is required"}), 400
 
-    id = request.form.get("id")
-    files = request.files.getlist("files")
+    # Validate required form fields
+    if "target_id" not in request.form:
+        return jsonify({"error": "target_id is required"}), 400
 
-    if len(files) != 1:
-        return jsonify({"error": "1 audio file is required for verification"}), 400
+    if "user_id" not in request.form:
+        return jsonify({"error": "user_id is required"}), 400
 
-    temp_file_path = None
+    target_id = request.form.get("target_id")
+    user_id = request.form.get("user_id")
+
+    # Get the uploaded M4A file
+    uploaded_file = request.files.get("file")
+    if not uploaded_file:
+        return jsonify({"error": "Audio file is required"}), 400
+
+        temp_file_path = None
+    temp_original_path = None
     reference_audio_path = None
     try:
-        # Save file temporarily
+        # Save uploaded file temporarily
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".tmp") as temp_file:
+            uploaded_file.save(temp_file)
+            temp_original_path = temp_file.name
 
-        # this temp file is the one that we're verifying against the profile, from the suspicious caller
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_file:
-            files[0].save(temp_file)
-            temp_file_path = temp_file.name
+        # Convert to MP3 with normalization
+        logger.info("Converting uploaded file to normalized MP3...")
+        try:
+            # Load and normalize audio
+            audio = AudioSegment.from_file(temp_original_path)
+
+            # Normalize volume
+            normalized_audio = audio.normalize()
+
+            # Set consistent sample rate and channels
+            normalized_audio = normalized_audio.set_frame_rate(16000)  # 16kHz
+            normalized_audio = normalized_audio.set_channels(1)  # Mono
+
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as mp3_file:
+                temp_file_path = mp3_file.name
+
+            # Export as MP3 with specific settings
+            normalized_audio.export(temp_file_path, format="mp3", bitrate="128k")
+
+            logger.info(f"Converted to normalized MP3: {temp_file_path}")
+
+            # Clean up original temp file
+            os.remove(temp_original_path)
+            temp_original_path = None
+
+        except Exception as e:
+            logger.error(f"Failed to convert to MP3: {e}")
+            return jsonify({"error": f"Failed to process audio: {str(e)}"}), 400
 
         # Fetch user profile from the database
-        profile = db.get_profile(
-            "63da7120-0f9a-4087-a5bb-fefa574115f6"
-        )  # TODO hardcoded for now
+        profile = db.get_profile(36)  # TODO hardcoded for now
         if not profile:
-            logger.error(f"ln 186 error could not find {id}")
+            logger.error(f"Could not find profile for target_id: {target_id}")
             return jsonify({"error": "User profile not found"}), 404
 
         # --- Speaker Verification (Primary) --- COMMENTED OUT FOR MINIMAL DEPLOYMENT
-        speaker_verification_result = ("model_not_deployed", (False, 0.0))
+        # speaker_verification_result = ("model_not_deployed", (False, 0.0))
         # training_url = profile.get("training_audio_url")
 
         # if training_url:
@@ -520,16 +554,25 @@ def verify():
         #         speaker_verification_result = ("download_failed", (False, 0.0))
 
         # --- openSMILE Verification (Secondary) ---
+
         baseline_os_vectors = profile["opensmile_vectors"]
-        baseline_avg_euclidean_dist = profile["avg_euclidean_distance"]
 
-        # Deserialize the scaler
+        # Initialize speaker verification result (since it's commented out)
+        speaker_verification_result = ("model_not_deployed", (False, 0.0))
+
+        # Load scaler and avg_euclidean_distance from gold.json file
         try:
-            scaler = deserialize_scaler(profile["scaler"])
+            with open("user_profiles/gold.json", "r") as f:
+                gold_data = json.load(f)
+            scaler = deserialize_scaler(gold_data["scaler"])
+            baseline_avg_euclidean_dist = gold_data["avg_euclidean_distance"]
         except Exception as e:
-            return jsonify({"error": f"Failed to load scaler: {str(e)}"}), 500
+            return (
+                jsonify({"error": f"Failed to load data from gold.json: {str(e)}"}),
+                500,
+            )
 
-        # Extract and normalize features from verification file
+        # Extract and normalize features from uploaded file
         raw_verify_vector = extract_opensmile_features(temp_file_path)
         verify_os_vector = scaler.transform(raw_verify_vector.reshape(1, -1)).flatten()
 
@@ -585,8 +628,11 @@ def verify():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     finally:
+        # Clean up temporary files
         if temp_file_path and os.path.exists(temp_file_path):
             os.remove(temp_file_path)
+        if temp_original_path and os.path.exists(temp_original_path):
+            os.remove(temp_original_path)
         if reference_audio_path and os.path.exists(reference_audio_path):
             os.remove(reference_audio_path)
 

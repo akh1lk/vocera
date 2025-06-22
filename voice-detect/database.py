@@ -30,7 +30,7 @@ class SupabaseDatabase:
             key_response = (
                 self.client.table("vox_keys")
                 .select("*")
-                .eq("user_id", id)
+                .eq("id", id)
                 .eq("is_active", True)
                 .order("created_at", desc=True)
                 .limit(1)
@@ -51,13 +51,13 @@ class SupabaseDatabase:
             vox_key_data = key_response.data
             vox_key_id = vox_key_data["id"]
 
-            logger.info(f"DEBUG: Found vox_key_id: {vox_key_id}")
+            logger.info(f"DEBUG: Found vox_key_id: {id}")
 
             # 2. Get all associated vox_samples (the vectors)
             vectors_response = (
                 self.client.table("vox_vectors")
                 .select("embedding")
-                .eq("vox_key_id", vox_key_id)
+                .eq("vox_key_id", id)
                 .execute()
             )
 
@@ -65,16 +65,30 @@ class SupabaseDatabase:
 
             # This would be an inconsistent state, but handle it.
             if not vectors_response.data:
-                logger.error(f"No vectors found for vox_key_id: {vox_key_id}")
+                logger.error(f"No vectors found for vox_key_id: {id}")
                 return None
 
             # 3. Construct the profile object in the format app.py expects
+            # Handle both old format (multiple 1D vectors) and new format (single 2D array)
+            if len(vectors_response.data) == 1:
+                # New format: single record with 2D array
+                embedding_data = vectors_response.data[0]["embedding"]
+                if isinstance(embedding_data[0], list):
+                    # 2D array stored as nested list
+                    opensmile_vectors = [np.array(row) for row in embedding_data]
+                else:
+                    # 1D array stored as single list
+                    opensmile_vectors = [np.array(embedding_data)]
+            else:
+                # Old format: multiple records with 1D vectors
+                opensmile_vectors = [
+                    np.array(vector["embedding"]) for vector in vectors_response.data
+                ]
+
             profile = {
                 "user_id": vox_key_data["user_id"],
                 "training_audio_url": vox_key_data.get("training_audio_url"),
-                "opensmile_vectors": [
-                    np.array(vector["embedding"]) for vector in vectors_response.data
-                ],
+                "opensmile_vectors": opensmile_vectors,
                 # TODO: Store and retrieve these from vox_keys table
                 "avg_euclidean_distance": vox_key_data.get("avg_distance"),
                 "scaler": vox_key_data.get("scaler_data"),
