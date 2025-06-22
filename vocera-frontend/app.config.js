@@ -16,7 +16,7 @@ export default {
     ios: {
       supportsTablet: true,
       infoPlist: {
-        NSMicrophoneUsageDescription: "This app needs access to your microphone to record Vox Key samples for voice verification.",
+        NSMicrophoneUsageDescription: "Allow Vocera to access your microphone to record Vox Key samples for voice verification.",
         NSUserTrackingUsageDescription: "This app uses data for voice verification purposes only."
       }
     },
@@ -39,14 +39,12 @@ export default {
     plugins: [
       "expo-router",
       [
-        "expo-av",
+        "expo-audio",
         {
           microphonePermission: "Allow Vocera to access your microphone to record Vox Key samples for voice verification."
         }
       ],
-      [
-        "expo-secure-store"
-      ]
+      "expo-secure-store"
     ],
     experiments: {
       typedRoutes: true
