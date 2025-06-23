@@ -102,4 +102,74 @@ class OpenAIService {
   }
 }
 
+// Heroku service for uploading .wav audio files
+class HerokuService {
+  private herokuEndpoint: string;
+
+  constructor() {
+    this.herokuEndpoint = 'https://vocera-b8ea46a65e5a.herokuapp.com';
+  }
+
+  // Upload .wav audio file to Heroku endpoint
+  async uploadWavFile(audioUri: string, endpoint: string = '/upload', additionalParams: Record<string, any> = {}): Promise<any> {
+    try {
+      console.log('Starting Heroku .wav upload for:', audioUri);
+
+      // Check if file exists and get info
+      const fileInfo = await FileSystem.getInfoAsync(audioUri);
+      console.log('Audio file info:', fileInfo);
+      
+      if (!fileInfo.exists) {
+        throw new Error('Audio file does not exist');
+      }
+
+      console.log('File size:', fileInfo.size, 'bytes');
+
+      // Detect actual audio format (files are typically m4a from expo-audio)
+      let mimeType = 'audio/wav';
+      
+      if (audioUri.includes('.m4a') || audioUri.includes('.aac')) {
+        mimeType = 'audio/mp4';
+      } else if (audioUri.includes('.mp3')) {
+        mimeType = 'audio/mpeg';
+      } else if (audioUri.includes('.wav')) {
+        mimeType = 'audio/wav';
+      }
+      
+      console.log('Using MIME type:', mimeType);
+
+      const response = await FileSystem.uploadAsync(
+        `${this.herokuEndpoint}${endpoint}`,
+        audioUri,
+        {
+          httpMethod: 'POST',
+          uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+          fieldName: 'file',
+          mimeType: mimeType,
+          parameters: additionalParams,
+        }
+      );
+
+      console.log('Heroku API response status:', response.status);
+      console.log('Heroku API response body:', response.body);
+
+      if (response.status === 200 || response.status === 201) {
+        return JSON.parse(response.body);
+      } else {
+        throw new Error(`Heroku API Error: ${response.status} - ${response.body}`);
+      }
+
+    } catch (error: any) {
+      console.error('Heroku .wav upload error:', error);
+
+      if (error.message) {
+        throw new Error(`Upload failed: ${error.message}`);
+      } else {
+        throw new Error('Failed to upload .wav file to Heroku');
+      }
+    }
+  }
+}
+
+export const herokuService = new HerokuService();
 export const openaiService = new OpenAIService();

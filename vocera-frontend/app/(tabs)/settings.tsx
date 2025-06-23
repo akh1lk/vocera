@@ -114,6 +114,16 @@ export default function SettingsScreen() {
               <Text style={styles.sectionTitle}>Your Information</Text>
             </View>
             <View style={styles.card}>
+              <InfoRow 
+                label="Name" 
+                value={user?.firstName && user?.lastName 
+                  ? `${user.firstName} ${user.lastName}`
+                  : user?.firstName || user?.lastName || 'Not set'
+                } 
+              />
+              <View style={styles.divider} />
+              <InfoRow label="Email" value={user?.email || 'Not set'} />
+              <View style={styles.divider} />
               <InfoRow label="Vox Key Updated" value={formatDate(user?.lastUpdated)} />
             </View>
           </View>

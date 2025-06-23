@@ -43,7 +43,9 @@ class AudioUtils {
   ): Promise<AudioSegment | null> {
     try {
       const tempDir = await this.ensureTempDirectory();
-      const outputPath = `${tempDir}segment_${Date.now()}.wav`;
+      // Keep original format extension instead of forcing .wav
+      const originalExtension = audioUri.split('.').pop() || 'm4a';
+      const outputPath = `${tempDir}segment_${Date.now()}.${originalExtension}`;
 
       // For React Native, we'll use a simpler approach
       // In a real production app, you might want to use a native module

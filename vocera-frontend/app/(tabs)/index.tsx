@@ -33,7 +33,7 @@ import { InstructionsPanel } from '../../components/InstructionsPanel';
 import { TranscriptView } from '../../components/TranscriptView';
 import { useVoceraStore } from '../../store/voceraStore';
 import { supabaseService } from '../../services/supabaseService';
-import { openaiService } from '../../services/openaiService';
+import { openaiService, herokuService } from '../../services/openaiService';
 import { audioUtils } from '../../services/audioUtils';
 import { useAudioRecorder, AudioModule, RecordingPresets } from 'expo-audio';
 
@@ -643,40 +643,39 @@ export default function HomeScreen() {
         throw new Error('Failed to extract audio segment for verification');
       }
 
-      // Convert last 5 seconds to base64 for API call using audioUtils
-      const audioBase64 = await audioUtils.audioToBase64(last5SecondsSegment.uri);
-      if (!audioBase64) {
-        throw new Error('Failed to convert audio to base64');
-      }
-
-      // Simple mock API response for testing
-      console.log('Sending audio to verification API...');
+      // Send wav file to Heroku /verify endpoint
+      console.log('Sending audio to Heroku verification API...');
       console.log('Target user ID:', currentTargetUserId);
       console.log('Caller name:', callerName);
-      console.log('Audio data length:', audioBase64?.length);
+      console.log('Audio file URI:', last5SecondsSegment.uri);
       
-      // Mock verification result (only prediction and confidence)
-      const verificationResult = {
-        prediction: Math.random() > 0.5, // Random true/false
-        confidence: Math.floor(Math.random() * 100), // Random 0-100
-        message: 'Mock verification completed'
-        // No transcript - that comes from Whisper
-      };
+      // Call Heroku /verify endpoint with wav file and target.id
+      const verificationResult = await herokuService.uploadWavFile(
+        last5SecondsSegment.uri,
+        '/verify',
+        {
+          target_id: currentTargetUserId,
+          user_id: user?.id
+        }
+      );
       
-      console.log('Mock verification result:', verificationResult);
+      console.log('Heroku verification result:', verificationResult);
 
       // Set the transcript from Whisper only
       const finalTranscript = fullTranscript !== 'Transcription failed' ? fullTranscript : 'Transcription unavailable';
       setCurrentTranscript(finalTranscript);
       console.log('Final transcript from Whisper:', finalTranscript);
 
-      // Create final result object
+      // Create final result object using API response
       const finalResult = {
-        match: verificationResult.prediction || false,
+        match: !verificationResult.prediction || false,
         confidence: verificationResult.confidence || 0,
         transcript: finalTranscript
       };
       setVerificationResult(finalResult);
+
+      // Show prediction and confidence to user
+      console.log(`Verification completed - Prediction: ${verificationResult.prediction}, Confidence: ${verificationResult.confidence}%`);
 
       // Auto-save the result to Supabase results table
       try {
