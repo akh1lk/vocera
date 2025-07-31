@@ -1,0 +1,12 @@
+Flask
+numpy
+scipy
+opensmile
+Werkzeug
+gunicorn
+openai
+python-dotenv
+scikit-learn
+requests
+supabase
+pydub

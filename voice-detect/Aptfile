@@ -1,0 +1,6 @@
+ffmpeg
+mediainfo
+sox
+libsox-fmt-all
+libmediainfo0v5
+libmediainfo-dev 
